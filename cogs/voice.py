@@ -1,16 +1,20 @@
-import discord
-from discord.ext import commands
-from gtts import gTTS
+# Standard library imports
 import os
 import asyncio
 import logging
-from typing import Optional, Set, Dict, List, Tuple
-from dataclasses import dataclass
-from pathlib import Path
+import random
 import tempfile
 from datetime import datetime, timedelta
 from collections import defaultdict
+from pathlib import Path
+from typing import Optional, Set, Dict, List, Tuple
 
+# Third-party imports
+import discord
+from discord.ext import commands
+from gtts import gTTS
+
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -39,6 +43,8 @@ class RateLimiter:
         self.rejoin_threshold = rejoin_threshold
         self.rejoin_window = timedelta(minutes=rejoin_window_minutes)
         self.user_joins: Dict[Tuple[int, int], UserJoinInfo] = {}
+        logger.info(f"RateLimiter initialized with {cooldown_minutes}min cooldown, "
+                   f"{rejoin_threshold} rejoin threshold")
 
     def should_welcome(self, guild_id: int, user_id: int) -> Tuple[bool, bool]:
         """
@@ -54,6 +60,7 @@ class RateLimiter:
                 join_count=1,
                 last_join=now
             )
+            logger.debug(f"New user join tracked for Guild:{guild_id} User:{user_id}")
             return True, False
 
         user_info = self.user_joins[key]
@@ -61,6 +68,7 @@ class RateLimiter:
         # Reset join count if outside rejoin window
         if now - user_info.last_join > self.rejoin_window:
             user_info.join_count = 0
+            logger.debug(f"Reset join count for Guild:{guild_id} User:{user_id}")
         
         user_info.join_count += 1
         user_info.last_join = now
@@ -68,8 +76,9 @@ class RateLimiter:
         # Check if we're still in cooldown period
         if now - user_info.last_welcome < self.cooldown:
             if user_info.join_count >= self.rejoin_threshold:
-                # Allow name-only welcome for frequent rejoins
+                logger.info(f"Name-only welcome for frequent rejoin User:{user_id}")
                 return True, True
+            logger.debug(f"User:{user_id} in cooldown period")
             return False, False
 
         # Update last welcome time and reset join count
@@ -81,10 +90,14 @@ class RateLimiter:
         now = datetime.now()
         max_age = timedelta(hours=max_age_hours)
         
+        old_count = len(self.user_joins)
         self.user_joins = {
             key: info for key, info in self.user_joins.items()
             if now - info.last_join < max_age
         }
+        removed = old_count - len(self.user_joins)
+        if removed > 0:
+            logger.info(f"Cleaned up {removed} old rate limit entries")
 
 class VoiceManager:
     """Handles voice-related operations"""
@@ -92,12 +105,14 @@ class VoiceManager:
         self.temp_dir = Path(tempfile.gettempdir()) / "discord_bot_audio"
         self.temp_dir.mkdir(exist_ok=True)
         self.audio_cache: Dict[str, Path] = {}
+        logger.info(f"VoiceManager initialized with temp directory: {self.temp_dir}")
 
     async def create_welcome_audio(self, text: str, lang: str = 'en') -> Path:
         """Creates and saves TTS audio file with caching"""
         cache_key = f"{text}_{lang}"
         
         if cache_key in self.audio_cache and self.audio_cache[cache_key].exists():
+            logger.debug(f"Using cached audio for: {text[:20]}...")
             return self.audio_cache[cache_key]
 
         try:
@@ -105,6 +120,7 @@ class VoiceManager:
             temp_file = self.temp_dir / f"welcome_{hash(text)}_{lang}.mp3"
             tts.save(str(temp_file))
             self.audio_cache[cache_key] = temp_file
+            logger.debug(f"Created new audio file: {temp_file.name}")
             return temp_file
         except Exception as e:
             logger.error(f"Failed to create TTS audio: {e}")
@@ -116,9 +132,18 @@ class VoiceManager:
             raise ValueError("Voice client is not connected")
 
         try:
-            voice_client.play(discord.FFmpegPCMAudio(str(audio_path)))
+            audio_source = discord.FFmpegPCMAudio(str(audio_path))
+            if voice_client.is_playing():
+                voice_client.stop()
+            
+            voice_client.play(audio_source)
+            logger.debug(f"Started playing audio: {audio_path.name}")
+            
             while voice_client.is_playing():
                 await asyncio.sleep(0.1)
+            
+            logger.debug("Finished playing audio")
+            
         except Exception as e:
             logger.error(f"Error playing audio: {e}")
             raise
@@ -126,19 +151,21 @@ class VoiceManager:
     def cleanup_cache(self, max_files: int = 50):
         """Cleanup old cached audio files"""
         if len(self.audio_cache) > max_files:
-            # Remove oldest files until we're under the limit
             files_to_remove = list(self.audio_cache.items())[:-max_files]
             for key, path in files_to_remove:
                 if path.exists():
                     path.unlink()
                 del self.audio_cache[key]
+            logger.info(f"Cleaned up {len(files_to_remove)} cached audio files")
 
 class Voice(commands.Cog):
+    """Voice Channel Welcome Bot"""
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.voice_manager = VoiceManager()
         self.blocked_users: Dict[int, Set[int]] = {}
         self.rate_limiter = RateLimiter()
+        self.active_connections: Set[int] = set()  # Track active voice connections
         
         # Server-specific configurations
         self.welcome_configs = {
@@ -170,6 +197,7 @@ class Voice(commands.Cog):
 
         # Start cleanup tasks
         self.cleanup_task = bot.loop.create_task(self._periodic_cleanup())
+        logger.info("Voice Cog initialized")
 
     async def _periodic_cleanup(self):
         """Periodically clean up caches and old data"""
@@ -178,15 +206,23 @@ class Voice(commands.Cog):
                 await asyncio.sleep(3600)  # Run every hour
                 self.rate_limiter.cleanup_old_entries()
                 self.voice_manager.cleanup_cache()
+                logger.info("Performed periodic cleanup")
             except Exception as e:
                 logger.error(f"Error in periodic cleanup: {e}")
 
     async def connect_to_channel(self, channel: discord.VoiceChannel, 
                                retries: int = 3, delay: float = 5) -> Optional[discord.VoiceClient]:
-        """Enhanced connect to voice channel with better retry logic"""
+        """Enhanced connect to voice channel with retry logic"""
+        if channel.guild.id in self.active_connections:
+            logger.debug(f"Already connected to guild {channel.guild.id}")
+            return None
+
         for attempt in range(retries):
             try:
-                return await channel.connect(timeout=20.0, reconnect=True)
+                logger.info(f"Connecting to voice channel {channel.id} (attempt {attempt + 1})")
+                vc = await channel.connect(timeout=20.0, reconnect=True)
+                self.active_connections.add(channel.guild.id)
+                return vc
             except Exception as e:
                 logger.warning(f"Connection attempt {attempt + 1}/{retries} failed: {e}")
                 if attempt < retries - 1:
@@ -194,6 +230,7 @@ class Voice(commands.Cog):
                 else:
                     logger.error(f"Failed to connect after {retries} attempts")
                     raise
+        return None
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, 
@@ -207,11 +244,13 @@ class Voice(commands.Cog):
         should_welcome, name_only = self.rate_limiter.should_welcome(guild_id, member.id)
         
         if not should_welcome:
+            logger.debug(f"Skipping welcome for {member.name} (rate limited)")
             return
 
         config = self.welcome_configs.get(guild_id, self.welcome_configs[None])
         
         try:
+            logger.info(f"Preparing welcome for {member.name} in guild {guild_id}")
             vc = await self.connect_to_channel(after.channel)
             if not vc:
                 return
@@ -229,6 +268,8 @@ class Voice(commands.Cog):
         finally:
             if vc and vc.is_connected():
                 await vc.disconnect()
+                self.active_connections.remove(guild_id)
+                logger.debug(f"Disconnected from guild {guild_id}")
 
     def _should_welcome_member(self, member: discord.Member, 
                              before: discord.VoiceState, 
@@ -259,9 +300,11 @@ class Voice(commands.Cog):
         if member.id in self.blocked_users[guild_id]:
             self.blocked_users[guild_id].remove(member.id)
             await ctx.send(f"Welcome messages enabled for {member.name}")
+            logger.info(f"Enabled welcome messages for {member.name} in guild {guild_id}")
         else:
             self.blocked_users[guild_id].add(member.id)
             await ctx.send(f"Welcome messages disabled for {member.name}")
+            logger.info(f"Disabled welcome messages for {member.name} in guild {guild_id}")
 
     @commands.command()
     @commands.has_permissions(administrator=True)
@@ -273,9 +316,29 @@ class Voice(commands.Cog):
         
         self.rate_limiter.cooldown = timedelta(minutes=minutes)
         await ctx.send(f"Welcome message cooldown set to {minutes} minutes")
+        logger.info(f"Cooldown set to {minutes} minutes in guild {ctx.guild.id}")
+
+    @commands.command()
+    @commands.has_permissions(administrator=True)
+    async def welcome_status(self, ctx: commands.Context):
+        """Shows current welcome message settings"""
+        guild_id = ctx.guild.id
+        blocked_count = len(self.blocked_users.get(guild_id, set()))
+        cooldown_mins = self.rate_limiter.cooldown.total_seconds() / 60
+        
+        status = (
+            f"🔊 Welcome Status for {ctx.guild.name}:\n"
+            f"• Cooldown: {cooldown_mins:.0f} minutes\n"
+            f"• Blocked Users: {blocked_count}\n"
+            f"• Active Voice Connection: {'Yes' if guild_id in self.active_connections else 'No'}\n"
+            f"• Language: {self.welcome_configs.get(guild_id, self.welcome_configs[None]).language}"
+        )
+        await ctx.send(status)
 
     async def cog_unload(self):
         """Cleanup when cog is unloaded"""
+        logger.info("Unloading Voice cog...")
+        
         # Cancel cleanup task
         if hasattr(self, 'cleanup_task'):
             self.cleanup_task.cancel()
@@ -292,7 +355,10 @@ class Voice(commands.Cog):
                 for file in temp_dir.glob("*.mp3"):
                     file.unlink(missing_ok=True)
                 temp_dir.rmdir()
+        
+        logger.info("Voice cog unloaded successfully")
 
 async def setup(bot: commands.Bot):
     """Adds the Voice cog to the bot"""
     await bot.add_cog(Voice(bot))
+    logger.info("Voice cog loaded successfully")
