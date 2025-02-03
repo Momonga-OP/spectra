@@ -280,7 +280,7 @@ class SecondServerCog(commands.Cog):
             view = GuildPingView(self.bot, guild_data)
             message_content = (
                 "**🎯 Panneau d'Alerte DEF**\n\n"
-                "Bienvenue sur le Panneau d'Alerte Défense ! Cliquez sur le bouton de votre guilde ci-dessous pour envoyer une alerte à votre équipe. "
+                "Bienvenue sur le Panneau d'Alerte Défense ! Cliquez sur le bouton de votre guilde ci-dessous pour envoyer une alerte à votre équipe. "
                 "💡 **Comment l'utiliser :**\n"
                 "1️⃣ Cliquez sur le bouton de votre guilde.\n"
                 "2️⃣ Vérifiez le canal d'alerte pour les mises à jour.\n"
@@ -288,12 +288,17 @@ class SecondServerCog(commands.Cog):
                 "━━━━━━━━━━━━━━━━━━━━\n"
             )
 
-            # Delete all existing messages in the channel
-            await channel.purge()
+            # Try to find and update existing pinned message
+            async for message in channel.history(limit=50):
+                if message.pinned:
+                    await message.edit(content=message_content, view=view)
+                    print("Panel updated.")
+                    return
 
-            # Create a new panel message
+            # If no pinned message, create a new one
             new_message = await channel.send(content=message_content, view=view)
             await new_message.pin()
+            print("Panel created and pinned successfully.")
 
         except Exception as e:
             print(f"Detailed error in update_panel: {e}")
