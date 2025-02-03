@@ -174,13 +174,24 @@ class GuildPingView(View):
         super().__init__(timeout=None)
         self.bot = bot
         for guild_name, data in guild_data.items():
-            button = Button(
-                label=f"  {guild_name.upper()}  ",
-                emoji=data["emoji"],
-                style=discord.ButtonStyle.primary
-            )
-            button.callback = self.create_ping_callback(guild_name, data["role_id"])
-            self.add_item(button)
+            try:
+                # Handle Unicode emoji
+                if len(data["emoji"]) <= 2:  # Unicode emoji
+                    emoji = data["emoji"]
+                # Handle custom emoji
+                else:
+                    emoji = discord.PartialEmoji.from_str(data["emoji"])
+                
+                button = Button(
+                    label=f"  {guild_name.upper()}  ",
+                    emoji=emoji,
+                    style=discord.ButtonStyle.primary
+                )
+                button.callback = self.create_ping_callback(guild_name, data["role_id"])
+                self.add_item(button)
+            except Exception as e:
+                print(f"Error creating button for guild {guild_name}: {e}")
+                continue
 
     def create_ping_callback(self, guild_name, role_id):
         async def callback(interaction: discord.Interaction):
@@ -256,13 +267,16 @@ class SecondServerCog(commands.Cog):
             "━━━━━━━━━━━━━━━━━━━━\n"
         )
 
-        async for message in channel.history(limit=50):
-            if message.pinned:
-                await message.edit(content=message_content, view=view)
-                return
+        try:
+            async for message in channel.history(limit=50):
+                if message.pinned:
+                    await message.edit(content=message_content, view=view)
+                    return
 
-        new_message = await channel.send(content=message_content, view=view)
-        await new_message.pin()
+            new_message = await channel.send(content=message_content, view=view)
+            await new_message.pin()
+        except Exception as e:
+            print(f"Error updating panel: {e}")
 
     @app_commands.command(name="add_guild", description="Ajouter une nouvelle guilde au panneau d'alerte")
     @app_commands.checks.has_permissions(administrator=True)
@@ -281,6 +295,16 @@ class SecondServerCog(commands.Cog):
             role = interaction.guild.get_role(role_id_int)
             if not role:
                 await interaction.response.send_message("Le rôle spécifié n'existe pas.", ephemeral=True)
+                return
+
+            # Validate emoji
+            try:
+                if len(emoji_id) <= 2:  # Unicode emoji
+                    pass  # No validation needed
+                else:
+                    discord.PartialEmoji.from_str(emoji_id)
+            except:
+                await interaction.response.send_message("L'emoji spécifié n'est pas valide.", ephemeral=True)
                 return
 
             # Add guild to database
@@ -314,12 +338,13 @@ class SecondServerCog(commands.Cog):
         await self.update_panel()
 
         guild = self.bot.get_guild(GUILD_ID)
-        alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
-        if alert_channel:
-            await alert_channel.set_permissions(
-                guild.default_role, send_messages=False, add_reactions=False
-            )
-            print("Alert channel permissions updated.")
+        if guild:
+            alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
+            if alert_channel:
+                await alert_channel.set_permissions(
+                    guild.default_role, send_messages=False, add_reactions=False
+                )
+                print("Alert channel permissions updated.")
 
         print("Bot is ready.")
 
