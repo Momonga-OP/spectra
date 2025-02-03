@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import os
 import asyncio
 import logging
-import sqlite3
+import asyncpg
 import sys
 import random
 
@@ -18,6 +18,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 OWNER_ID = 486652069831376943  # Replace with your Discord user ID
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+DATABASE_URL = os.getenv("DATABASE_URL")  # Neon.tech PostgreSQL connection
 LOCK_FILE = 'bot.lock'
 
 # Function to check if the bot is already running
@@ -36,17 +37,21 @@ def remove_lock():
     if os.path.exists(LOCK_FILE):
         os.remove(LOCK_FILE)
 
-# Database setup: Initialize SQLite for conversation history
-def init_db():
-    db_path = 'conversation_history.db'
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS conversation (user_id INTEGER, prompt TEXT, response TEXT)''')
-    conn.commit()
-    conn.close()
-
-# Initialize database on bot start
-init_db()
+# Database setup: Initialize PostgreSQL for conversation history
+async def init_db():
+    try:
+        conn = await asyncpg.connect(DATABASE_URL)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS conversation (
+                user_id BIGINT,
+                prompt TEXT,
+                response TEXT
+            )
+        ''')
+        await conn.close()
+        logger.info("Database initialized successfully.")
+    except Exception as e:
+        logger.exception("Failed to initialize database")
 
 @bot.event
 async def on_ready():
@@ -127,7 +132,7 @@ EXTENSIONS = [
     'cogs.watermark_user', 'cogs.attack', 'cogs.role', 'cogs.metiers', 'cogs.percopos',
     'cogs.youtube_mp3', 'cogs.image_converter', 'cogs.clear', 'cogs.percoattack', 'cogs.sure',
     'cogs.rbg', 'cogs.bow', 'cogs.welcomesparta', 'cogs.contract', 'cogs.profession',
-    'cogs.super','cogs.translator', 'cogs.spotify', 'cogs.voice', 'cogs.youtubemp4', 'cogs.ecologia', 'cogs.invite',
+    'cogs.super', 'cogs.translator', 'cogs.spotify', 'cogs.voice', 'cogs.youtubemp4', 'cogs.ecologia', 'cogs.invite',
 ]
 
 async def load_extensions():
@@ -141,6 +146,8 @@ async def load_extensions():
 async def main():
     check_lock()  # Check for existing lock
     create_lock()  # Create a lock file
+
+    await init_db()  # Initialize PostgreSQL
 
     async with bot:
         await load_extensions()
