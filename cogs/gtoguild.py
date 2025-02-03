@@ -361,27 +361,27 @@ class SecondServerCog(commands.Cog):
         await self.update_panel()
         await interaction.response.send_message("Le panneau d'alerte a été mis à jour avec succès !", ephemeral=True)
 
-        @commands.Cog.listener()
-        async def on_ready(self):
-            try:
-                if not self.is_synced:
-                    await self.bot.tree.sync()
-                    self.is_synced = True
+    @commands.Cog.listener()
+    async def on_ready(self):
+        try:
+            if not self.is_synced:
+                await self.bot.tree.sync()
+                self.is_synced = True
 
-                await self.update_panel()
+            await self.update_panel()
 
-                guild = self.bot.get_guild(GUILD_ID)
-                if guild:
-                    alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
-                    if alert_channel:
-                        await alert_channel.set_permissions(
-                            guild.default_role, send_messages=False, add_reactions=False
-                        )
-                        print("Alert channel permissions updated.")
+            guild = self.bot.get_guild(GUILD_ID)
+            if guild:
+                alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
+                if alert_channel:
+                    await alert_channel.set_permissions(
+                        guild.default_role, send_messages=False, add_reactions=False
+                    )
+                    print("Alert channel permissions updated.")
 
-                print("Bot is fully ready.")
-            except Exception as e:
-                print(f"Error in on_ready: {e}")
+            print("Bot is fully ready.")
+        except Exception as e:
+            print(f"Error in on_ready: {e}")
 
-    async def setup(bot: commands.Bot):
-        await bot.add_cog(SecondServerCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(SecondServerCog(bot))
