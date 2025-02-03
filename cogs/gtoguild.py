@@ -89,97 +89,6 @@ class Database:
             return {}
 
 
-class NoteModal(Modal):
-    def __init__(self, message: discord.Message):
-        super().__init__(title="Ajouter une note")
-        self.message = message
-
-        self.note_input = TextInput(
-            label="Votre note",
-            placeholder="Ajoutez des détails sur l'alerte (nom de la guilde attaquante, heure, etc.)",
-            max_length=100,
-            style=discord.TextStyle.paragraph,
-        )
-        self.add_item(self.note_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        embed = self.message.embeds[0] if self.message.embeds else None
-        if not embed:
-            await interaction.response.send_message("Impossible de récupérer l'embed à modifier.", ephemeral=True)
-            return
-
-        existing_notes = embed.fields[0].value if embed.fields else "Aucune note."
-        updated_notes = f"{existing_notes}\n- **{interaction.user.display_name}**: {self.note_input.value.strip()}"
-        embed.clear_fields()
-        embed.add_field(name="📝 Notes", value=updated_notes, inline=False)
-
-        await self.message.edit(embed=embed)
-        await interaction.response.send_message("Votre note a été ajoutée avec succès !", ephemeral=True)
-
-
-class AlertActionView(View):
-    def __init__(self, bot: commands.Bot, message: discord.Message):
-        super().__init__(timeout=None)
-        self.bot = bot
-        self.message = message
-        self.is_locked = False
-
-        self.add_note_button = Button(
-            label="Ajouter une note",
-            style=discord.ButtonStyle.secondary,
-            emoji="📝"
-        )
-        self.add_note_button.callback = self.add_note_callback
-        self.add_item(self.add_note_button)
-
-        self.won_button = Button(
-            label="Won",
-            style=discord.ButtonStyle.success,
-        )
-        self.won_button.callback = self.mark_as_won
-        self.add_item(self.won_button)
-
-        self.lost_button = Button(
-            label="Lost",
-            style=discord.ButtonStyle.danger,
-        )
-        self.lost_button.callback = self.mark_as_lost
-        self.add_item(self.lost_button)
-
-    async def add_note_callback(self, interaction: discord.Interaction):
-        if interaction.channel_id != ALERTE_DEF_CHANNEL_ID:
-            await interaction.response.send_message("Vous ne pouvez pas ajouter de note ici.", ephemeral=True)
-            return
-
-        modal = NoteModal(self.message)
-        await interaction.response.send_modal(modal)
-
-    async def mark_as_won(self, interaction: discord.Interaction):
-        await self.mark_alert(interaction, "Gagnée", discord.Color.green())
-
-    async def mark_as_lost(self, interaction: discord.Interaction):
-        await self.mark_alert(interaction, "Perdue", discord.Color.red())
-
-    async def mark_alert(self, interaction: discord.Interaction, status: str, color: discord.Color):
-        if self.is_locked:
-            await interaction.response.send_message("Cette alerte a déjà été marquée.", ephemeral=True)
-            return
-
-        self.is_locked = True
-        for item in self.children:
-            item.disabled = True
-        await self.message.edit(view=self)
-
-        embed = self.message.embeds[0]
-        embed.color = color
-        embed.add_field(name="Statut",
-                        value=f"L'alerte a été marquée comme **{status}** par {interaction.user.mention}.",
-                        inline=False)
-
-        await self.message.edit(embed=embed)
-        await interaction.response.send_message(f"Alerte marquée comme **{status}** avec succès.", ephemeral=True)
-
-
 class GuildPingView(View):
     def __init__(self, bot: commands.Bot, guild_data: Dict[str, Dict[str, Any]]):
         super().__init__(timeout=None)
@@ -234,9 +143,6 @@ class GuildPingView(View):
                 embed.add_field(name="📝 Notes", value="Aucune note.", inline=False)
 
                 sent_message = await alert_channel.send(content=alert_message, embed=embed)
-                view = AlertActionView(self.bot, sent_message)
-                await sent_message.edit(view=view)
-
                 await interaction.response.send_message(
                     f"Alerte envoyée à {guild_name} dans le canal d'alerte !", ephemeral=True
                 )
@@ -252,7 +158,6 @@ class SecondServerCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.db = Database()
-        self.is_synced = False
 
     async def cog_load(self):
         try:
@@ -362,10 +267,6 @@ class SecondServerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         try:
-            if not self.is_synced:
-                await self.bot.tree.sync()
-                self.is_synced = True
-
             guild = self.bot.get_guild(GUILD_ID)
             if guild:
                 alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
@@ -375,7 +276,9 @@ class SecondServerCog(commands.Cog):
                     )
                     print("Alert channel permissions updated.")
 
-            print("Bot is fully ready.")
+            # Update the panel on bot startup
+            await self.update_panel()
+            print("Bot is fully ready and panel has been updated.")
         except Exception as e:
             print(f"Error in on_ready: {e}")
 
