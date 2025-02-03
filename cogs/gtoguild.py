@@ -7,7 +7,7 @@ import asyncpg
 import os
 from typing import Dict, Any
 
-# Configuration - REPLACE THESE WITH YOUR ACTUAL IDS
+# Configuration - REPLACE THESE WITH YOUR ACTUAL IDs
 GUILD_ID = 1234250450681724938  # Your main server ID
 PING_DEF_CHANNEL_ID = 1307664199438307382  # Channel for ping panel
 ALERTE_DEF_CHANNEL_ID = 1307778272914051163  # Channel for alerts
