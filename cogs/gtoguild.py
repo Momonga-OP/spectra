@@ -288,22 +288,13 @@ class SecondServerCog(commands.Cog):
                 "━━━━━━━━━━━━━━━━━━━━\n"
             )
 
-            # Check if a panel message already exists
-            panel_message = None
-            async for message in channel.history(limit=50):
-                if message.author == self.bot.user and message.pinned:
-                    panel_message = message
-                    break
+            # Delete all existing messages in the channel
+            await channel.purge()
 
-            if panel_message:
-                # Update the existing panel message
-                await panel_message.edit(content=message_content, view=view)
-                print("Panel updated.")
-            else:
-                # Create a new panel message and pin it
-                new_message = await channel.send(content=message_content, view=view)
-                await new_message.pin()
-                print("Panel created and pinned successfully.")
+            # Create a new panel message and pin it
+            new_message = await channel.send(content=message_content, view=view)
+            await new_message.pin()
+            print("Panel created and pinned successfully.")
 
         except Exception as e:
             print(f"Detailed error in update_panel: {e}")
@@ -374,8 +365,6 @@ class SecondServerCog(commands.Cog):
             if not self.is_synced:
                 await self.bot.tree.sync()
                 self.is_synced = True
-
-            await self.update_panel()
 
             guild = self.bot.get_guild(GUILD_ID)
             if guild:
