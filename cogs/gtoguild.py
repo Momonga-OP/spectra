@@ -262,11 +262,11 @@ class SecondServerCog(commands.Cog):
         new_message = await channel.send(content=message_content, view=view)
         await new_message.pin()
 
-    @commands.slash_command(name="add_guild", description="Ajouter une nouvelle guilde au panneau d'alerte")
-    @commands.has_permissions(administrator=True)
+    @app_commands.command(name="add_guild", description="Ajouter une nouvelle guilde au panneau d'alerte")
+    @app_commands.checks.has_permissions(administrator=True)
     async def add_guild(
         self,
-        ctx: discord.ApplicationContext,
+        interaction: discord.Interaction
         guild_name: str,
         emoji_id: str,
         role_id: str
@@ -293,9 +293,9 @@ class SecondServerCog(commands.Cog):
         except Exception as e:
             await ctx.respond(f"Une erreur est survenue: {str(e)}", ephemeral=True)
 
-    @commands.slash_command(name="remove_guild", description="Retirer une guilde du panneau d'alerte")
-    @commands.has_permissions(administrator=True)
-    async def remove_guild(self, ctx: discord.ApplicationContext, guild_name: str):
+    @app_commands.command(name="remove_guild", description="Retirer une guilde du panneau d'alerte")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def remove_guild(self, interaction: discord.Interaction, guild_name: str):
         success = await self.db.remove_guild(guild_name)
         if success:
             await self.update_panel()
@@ -319,3 +319,4 @@ class SecondServerCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SecondServerCog(bot))
+    await bot.tree.sync()
