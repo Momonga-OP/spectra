@@ -4,6 +4,8 @@ from discord import app_commands
 import asyncpg
 import os
 from typing import Dict, Any
+from .views import AlertActionView
+from .gtoguild import GuildPingView
 
 # Configuration - REPLACE THESE WITH YOUR ACTUAL IDs
 GUILD_ID = 1234250450681724938  # Your main server ID
