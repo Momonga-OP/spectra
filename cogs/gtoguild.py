@@ -288,13 +288,10 @@ class SecondServerCog(commands.Cog):
                 "━━━━━━━━━━━━━━━━━━━━\n"
             )
 
-            # Try to find and update existing pinned message
-            async for message in channel.history(limit=50):
-                if message.pinned:
-                    await message.edit(content=message_content, view=view)
-                    return
+            # Delete all existing messages in the channel
+            await channel.purge()
 
-            # If no pinned message, create a new one
+            # Create a new panel message
             new_message = await channel.send(content=message_content, view=view)
             await new_message.pin()
 
