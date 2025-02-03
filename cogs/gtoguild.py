@@ -6,6 +6,7 @@ import random
 import asyncpg
 import os
 from typing import Dict, Any
+import asyncio
 
 # Configuration
 GUILD_ID = 1234250450681724938
@@ -268,13 +269,17 @@ class SecondServerCog(commands.Cog):
         )
 
         try:
-            async for message in channel.history(limit=50):
-                if message.pinned:
-                    await message.edit(content=message_content, view=view)
-                    return
-
-            new_message = await channel.send(content=message_content, view=view)
-            await new_message.pin()
+            # Fetch the last pinned message in the channel
+            pinned_messages = await channel.pins()
+            if pinned_messages:
+                # Update the first pinned message
+                await pinned_messages[0].edit(content=message_content, view=view)
+                print("Updated existing pinned panel.")
+            else:
+                # Send a new message and pin it
+                new_message = await channel.send(content=message_content, view=view)
+                await new_message.pin()
+                print("Created and pinned new panel.")
         except Exception as e:
             print(f"Error updating panel: {e}")
 
@@ -340,6 +345,9 @@ class SecondServerCog(commands.Cog):
         if not self.is_synced:
             await self.bot.tree.sync()
             self.is_synced = True
+
+        # Wait for the bot to fully connect
+        await asyncio.sleep(5)
             
         await self.update_panel()
 
