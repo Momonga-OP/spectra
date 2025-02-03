@@ -2,7 +2,8 @@ import discord
 from discord.ui import View, Button
 from discord.ext import commands
 from typing import Dict, Any
-from config import GUILD_ID, ALERTE_DEF_CHANNEL_ID
+from .config import GUILD_ID, ALERTE_DEF_CHANNEL_ID
+from .views import AlertActionView, ALERT_MESSAGES
 
 class GuildPingView(View):
     def __init__(self, bot: commands.Bot, guild_data: Dict[str, Dict[str, Any]]):
