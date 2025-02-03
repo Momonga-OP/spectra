@@ -329,6 +329,12 @@ class SecondServerCog(commands.Cog):
         else:
             await interaction.response.send_message("La guilde spécifiée n'a pas été trouvée.", ephemeral=True)
 
+    @app_commands.command(name="update_panel", description="Mettre à jour ou poster le panneau d'alerte")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def update_panel_command(self, interaction: discord.Interaction):
+        await self.update_panel()
+        await interaction.response.send_message("Le panneau d'alerte a été mis à jour avec succès !", ephemeral=True)
+
     @commands.Cog.listener()
     async def on_ready(self):
         if not self.is_synced:
