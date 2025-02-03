@@ -2,6 +2,7 @@ import discord
 from discord.ui import View, Button, Modal, TextInput
 from discord.ext import commands
 import random
+from .config import ALERTE_DEF_CHANNEL_ID
 
 # French alert messages
 ALERT_MESSAGES = [
