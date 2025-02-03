@@ -228,6 +228,7 @@ class SecondServerCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.db = Database()
+        self.is_synced = False
 
     async def cog_load(self):
         await self.db.connect()
@@ -306,6 +307,10 @@ class SecondServerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        if not self.is_synced:
+            await self.bot.tree.sync()
+            self.is_synced = True
+            
         await self.update_panel()
 
         guild = self.bot.get_guild(GUILD_ID)
@@ -320,4 +325,3 @@ class SecondServerCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SecondServerCog(bot))
-    await bot.tree.sync()  # Sync the command tree
