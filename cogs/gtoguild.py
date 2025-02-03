@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from discord.ui import View, Button, Modal, TextInput
+from discord import app_commands
 import random
 import asyncpg
 import os
@@ -266,7 +267,7 @@ class SecondServerCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def add_guild(
         self,
-        interaction: discord.Interaction
+        interaction: discord.Interaction,
         guild_name: str,
         emoji_id: str,
         role_id: str
@@ -276,22 +277,22 @@ class SecondServerCog(commands.Cog):
             role_id_int = int(role_id)
             
             # Verify role exists
-            role = ctx.guild.get_role(role_id_int)
+            role = interaction.guild.get_role(role_id_int)
             if not role:
-                await ctx.respond("Le rôle spécifié n'existe pas.", ephemeral=True)
+                await interaction.response.send_message("Le rôle spécifié n'existe pas.", ephemeral=True)
                 return
 
             # Add guild to database
             success = await self.db.add_guild(guild_name, emoji_id, role_id_int)
             if success:
                 await self.update_panel()
-                await ctx.respond(f"La guilde {guild_name} a été ajoutée avec succès !", ephemeral=True)
+                await interaction.response.send_message(f"La guilde {guild_name} a été ajoutée avec succès !", ephemeral=True)
             else:
-                await ctx.respond("Une erreur est survenue lors de l'ajout de la guilde.", ephemeral=True)
+                await interaction.response.send_message("Une erreur est survenue lors de l'ajout de la guilde.", ephemeral=True)
         except ValueError:
-            await ctx.respond("Le role_id doit être un nombre valide.", ephemeral=True)
+            await interaction.response.send_message("Le role_id doit être un nombre valide.", ephemeral=True)
         except Exception as e:
-            await ctx.respond(f"Une erreur est survenue: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"Une erreur est survenue: {str(e)}", ephemeral=True)
 
     @app_commands.command(name="remove_guild", description="Retirer une guilde du panneau d'alerte")
     @app_commands.checks.has_permissions(administrator=True)
@@ -299,9 +300,9 @@ class SecondServerCog(commands.Cog):
         success = await self.db.remove_guild(guild_name)
         if success:
             await self.update_panel()
-            await ctx.respond(f"La guilde {guild_name} a été retirée avec succès !", ephemeral=True)
+            await interaction.response.send_message(f"La guilde {guild_name} a été retirée avec succès !", ephemeral=True)
         else:
-            await ctx.respond("La guilde spécifiée n'a pas été trouvée.", ephemeral=True)
+            await interaction.response.send_message("La guilde spécifiée n'a pas été trouvée.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -319,4 +320,4 @@ class SecondServerCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SecondServerCog(bot))
-    await bot.tree.sync()
+    await bot.tree.sync()  # Sync the command tree
