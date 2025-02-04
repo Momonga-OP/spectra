@@ -357,20 +357,51 @@ class SecondServerCog(commands.Cog):
             await interaction.response.send_message("La guilde spécifiée n'a pas été trouvée.", ephemeral=True)
 
 
+@app_commands.command(name="update_panel", description="Mettre à jour ou poster le panneau d'alerte")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def update_panel_command(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            await self.update_panel()
+            await interaction.followup.send("Le panneau d'alerte a été mis à jour avec succès !", ephemeral=True)
+        except Exception as e:
+            print(f"Error in update_panel_command: {e}")
+            await interaction.followup.send("Une erreur est survenue lors de la mise à jour du panneau.", ephemeral=True)
+
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.ensure_panel()
+        try:
+            if not self.is_synced:
+                await self.bot.tree.sync()
+                self.is_synced = True
 
-        guild = self.bot.get_guild(GUILD_ID)
-        alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
-        if alert_channel:
-            await alert_channel.set_permissions(
-                guild.default_role, send_messages=False, add_reactions=False
-            )
-            print("Alert channel permissions updated.")
-
-        print("Bot is ready.")
-
+            guild = self.bot.get_guild(GUILD_ID)
+            if guild:
+                alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
+                ping_channel = guild.get_channel(PING_DEF_CHANNEL_ID)
+                
+                if alert_channel:
+                    await alert_channel.set_permissions(
+                        guild.default_role, 
+                        send_messages=False, 
+                        add_reactions=False
+                    )
+                    print("Alert channel permissions updated.")
+                
+                if ping_channel:
+                    await ping_channel.set_permissions(
+                        guild.default_role,
+                        send_messages=False,
+                        add_reactions=False
+                    )
+                    print("Ping channel permissions updated.")
+                
+                # Create initial panel on startup
+                await self.update_panel()
+            
+            print("Bot is fully ready.")
+        except Exception as e:
+            print(f"Error in on_ready: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SecondServerCog(bot))
