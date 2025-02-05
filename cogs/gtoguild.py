@@ -8,9 +8,9 @@ import os
 from typing import Dict, Any
 
 # Configuration
-GUILD_ID = 1234250450681724938
-PING_DEF_CHANNEL_ID = 1307664199438307382
-ALERTE_DEF_CHANNEL_ID = 1307778272914051163
+GUILD_ID = 1234250450681724938  # Replace with your guild ID
+PING_DEF_CHANNEL_ID = 1307664199438307382  # Replace with your ping channel ID
+ALERTE_DEF_CHANNEL_ID = 1307778272914051163  # Replace with your alert channel ID
 
 ALERT_MESSAGES = [
     "🚨 {role} Alerte DEF ! Connectez-vous maintenant !",
