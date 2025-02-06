@@ -5,13 +5,12 @@ from discord import app_commands
 import random
 import asyncpg
 import os
-from typing import Dict, Any
-from datetime import datetime
+from typing import Optional
 
 # Configuration
-GUILD_ID = 1234250450681724938  # Replace with your guild ID
-PING_DEF_CHANNEL_ID = 1307664199438307382  # Replace with your ping channel ID
-ALERTE_DEF_CHANNEL_ID = 1307778272914051163  # Replace with your alert channel ID
+GUILD_ID = 1234250450681724938
+PING_DEF_CHANNEL_ID = 1307664199438307382
+ALERTE_DEF_CHANNEL_ID = 1307778272914051163
 
 ALERT_MESSAGES = [
     "🚨 {role} Alerte DEF ! Connectez-vous maintenant !",
@@ -46,53 +45,25 @@ class Database:
                 )
             ''')
 
-    async def add_guild(self, guild_name: str, emoji_id: str, role_id: int) -> bool:
-        try:
-            async with self.pool.acquire() as conn:
-                await conn.execute(
-                    'INSERT INTO guilds (guild_name, emoji_id, role_id) VALUES ($1, $2, $3)',
-                    guild_name, emoji_id, role_id
-                )
-                return True
-        except asyncpg.UniqueViolationError:
-            print(f"Guild {guild_name} already exists")
-            return False
-        except Exception as e:
-            print(f"Error adding guild: {e}")
-            return False
+    async def get_all_guilds(self):
+        async with self.pool.acquire() as conn:
+            return await conn.fetch('SELECT * FROM guilds')
 
-    async def remove_guild(self, guild_name: str) -> bool:
-        try:
-            async with self.pool.acquire() as conn:
-                result = await conn.execute(
-                    'DELETE FROM guilds WHERE guild_name = $1',
-                    guild_name
-                )
-                return 'DELETE 1' in result
-        except Exception as e:
-            print(f"Error removing guild: {e}")
-            return False
+    async def add_guild(self, guild_name: str, emoji_id: str, role_id: int):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                'INSERT INTO guilds (guild_name, emoji_id, role_id) VALUES ($1, $2, $3)',
+                guild_name, emoji_id, role_id
+            )
 
-    async def get_all_guilds(self) -> Dict[str, Dict[str, Any]]:
-        try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch('SELECT * FROM guilds')
-                return {
-                    row['guild_name']: {
-                        "emoji": row['emoji_id'],
-                        "role_id": row['role_id']
-                    }
-                    for row in rows
-                }
-        except Exception as e:
-            print(f"Error fetching guilds: {e}")
-            return {}
+    async def remove_guild(self, guild_name: str):
+        async with self.pool.acquire() as conn:
+            await conn.execute('DELETE FROM guilds WHERE guild_name = $1', guild_name)
 
 class NoteModal(Modal):
     def __init__(self, message: discord.Message):
         super().__init__(title="Ajouter une note")
         self.message = message
-
         self.note_input = TextInput(
             label="Votre note",
             placeholder="Ajoutez des détails sur l'alerte (nom de la guilde attaquante, heure, etc.)",
@@ -130,17 +101,11 @@ class AlertActionView(View):
         self.add_note_button.callback = self.add_note_callback
         self.add_item(self.add_note_button)
 
-        self.won_button = Button(
-            label="Won",
-            style=discord.ButtonStyle.success,
-        )
+        self.won_button = Button(label="Won", style=discord.ButtonStyle.success)
         self.won_button.callback = self.mark_as_won
         self.add_item(self.won_button)
 
-        self.lost_button = Button(
-            label="Lost",
-            style=discord.ButtonStyle.danger,
-        )
+        self.lost_button = Button(label="Lost", style=discord.ButtonStyle.danger)
         self.lost_button.callback = self.mark_as_lost
         self.add_item(self.lost_button)
 
@@ -148,7 +113,6 @@ class AlertActionView(View):
         if interaction.channel_id != ALERTE_DEF_CHANNEL_ID:
             await interaction.response.send_message("Vous ne pouvez pas ajouter de note ici.", ephemeral=True)
             return
-
         modal = NoteModal(self.message)
         await interaction.response.send_modal(modal)
 
@@ -170,44 +134,35 @@ class AlertActionView(View):
 
         embed = self.message.embeds[0]
         embed.color = color
-        embed.add_field(name="Statut",
-                       value=f"L'alerte a été marquée comme **{status}** par {interaction.user.mention}.",
-                       inline=False)
+        embed.add_field(name="Statut", value=f"L'alerte a été marquée comme **{status}** par {interaction.user.mention}.", inline=False)
 
         await self.message.edit(embed=embed)
         await interaction.response.send_message(f"Alerte marquée comme **{status}** avec succès.", ephemeral=True)
 
 class GuildPingView(View):
-    def __init__(self, bot: commands.Bot, guild_data: Dict[str, Dict[str, Any]]):
+    def __init__(self, bot: commands.Bot, guilds_data):
         super().__init__(timeout=None)
         self.bot = bot
-        for guild_name, data in guild_data.items():
-            try:
-                # Handle Unicode emoji
-                if len(data["emoji"]) <= 2:  # Unicode emoji
-                    emoji = data["emoji"]
-                # Handle custom emoji
-                else:
-                    emoji = discord.PartialEmoji.from_str(data["emoji"])
-
-                button = Button(
-                    label=f"  {guild_name.upper()}  ",
-                    emoji=emoji,
-                    style=discord.ButtonStyle.primary,
-                    custom_id=f"guild_button_{guild_name}"  # Add custom_id
-                )
-                button.callback = self.create_ping_callback(guild_name, data["role_id"])
-                self.add_item(button)
-            except Exception as e:
-                print(f"Error creating button for guild {guild_name}: {e}")
-                continue
+        
+        for guild in guilds_data:
+            button = Button(
+                label=f"  {guild['guild_name'].upper()}  ",
+                emoji=guild['emoji_id'],
+                style=discord.ButtonStyle.primary
+            )
+            button.callback = self.create_ping_callback(
+                guild['guild_name'],
+                guild['role_id']
+            )
+            self.add_item(button)
 
     def create_ping_callback(self, guild_name, role_id):
         async def callback(interaction: discord.Interaction):
             try:
                 if interaction.guild_id != GUILD_ID:
                     await interaction.response.send_message(
-                        "Cette fonction n'est pas disponible sur ce serveur.", ephemeral=True
+                        "Cette fonction n'est pas disponible sur ce serveur.",
+                        ephemeral=True
                     )
                     return
 
@@ -227,8 +182,7 @@ class GuildPingView(View):
                     description=f"**{interaction.user.mention}** a déclenché une alerte pour **{guild_name}**.",
                     color=discord.Color.red()
                 )
-                embed.set_thumbnail(
-                    url=interaction.user.avatar.url if interaction.user.avatar else interaction.user.default_avatar.url)
+                embed.set_thumbnail(url=interaction.user.avatar.url if interaction.user.avatar else interaction.user.default_avatar.url)
                 embed.add_field(name="📝 Notes", value="Aucune note.", inline=False)
 
                 sent_message = await alert_channel.send(content=alert_message, embed=embed)
@@ -236,7 +190,8 @@ class GuildPingView(View):
                 await sent_message.edit(view=view)
 
                 await interaction.response.send_message(
-                    f"Alerte envoyée à {guild_name} dans le canal d'alerte !", ephemeral=True
+                    f"Alerte envoyée à {guild_name} dans le canal d'alerte !",
+                    ephemeral=True
                 )
 
             except Exception as e:
@@ -246,219 +201,99 @@ class GuildPingView(View):
         return callback
 
 class SecondServerCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot, db: Database):
         self.bot = bot
-        self.db = Database()
-        self.is_synced = False
-        self.panel_message = None  # Add this to track the panel message
-        self.member_counts = {}  # Track member counts for each guild
-        self.cooldowns = {}  # Track cooldowns for guild pings
+        self.db = db
 
-    async def cog_load(self):
-        try:
-            await self.db.connect()
-        except Exception as e:
-            print(f"Failed to load database: {e}")
-
-    def create_progress_bar(self, percentage: float) -> str:
-        """Create a progress bar based on the percentage."""
-        filled = "█" * int(percentage * 10)
-        empty = "░" * (10 - len(filled))
-        return f"[{filled}{empty}] {int(percentage * 100)}%"
-
-    def get_ping_stats(self, guild_name: str) -> Dict[str, int]:
-        """Get ping statistics for a guild."""
-        # Placeholder for actual stats logic
-        return {
-            "total_24h": random.randint(1, 20),
-            "activite_24h": random.randint(0, 100),
-        }
-
-    async def update_member_counts(self):
-        """Update the member counts for each guild."""
+    async def update_panel(self):
         guild = self.bot.get_guild(GUILD_ID)
         if not guild:
-            return
-
-        guild_data = await self.db.get_all_guilds()
-        for guild_name, data in guild_data.items():
-            role = guild.get_role(data["role_id"])
-            if role:
-                self.member_counts[guild_name] = len(role.members)
-
-    async def create_panel_embed(self) -> discord.Embed:
-        """Create the embed for the alert panel."""
-        total_connectes = sum(self.member_counts.values())
-
-        embed = discord.Embed(
-            title="🎯 Panneau d'Alerte DEF",
-            color=discord.Color.blue()
-        )
-        embed.set_author(
-            name="Système d'Alerte START",
-            icon_url="https://github.com/Momonga-OP/Start2000/blob/main/35_35-0%20(2).png?raw=true"
-        )
-        
-        embed.description = (
-            "```diff\n+ SYSTÈME D'ALERTE GUILDE [v2.7.0]\n```\n"
-            "**📋 Instructions :**\n"
-            "1️⃣ Cliquez sur le bouton de votre guilde\n"
-            "2️⃣ Suivez les mises à jour dans #║╟➢📯alertes-def \n"
-            "3️⃣ Ajoutez des notes si nécessaire\n\n"
-            f"👥 Membres connectés: {total_connectes}\n"
-            "```ansi\n[2;34m[!] Statut système: [0m[2;32mOPÉRATIONNEL[0m```"
-        )
-
-        for guild_name, count in self.member_counts.items():
-            stats = self.get_ping_stats(guild_name)
-            activite = self.create_progress_bar(stats['activite_24h'] / 100)
-            
-            valeur = (
-                f"```prolog\n"
-                f"[🟢 Connectés] {count}\n"
-                f"[📨 Pings 24h] {stats['total_24h']}\n"
-                f"[⏱ Cooldown] {'🟠 Actif' if self.cooldowns.get(guild_name) else '🟢 Inactif'}\n"
-                f"[📊 Activité] {activite}```"
-            )
-            
-            embed.add_field(
-                name=f"📌 {guild_name}",
-                value=valeur,
-                inline=True
-            )
-
-        embed.set_footer(
-            text=f"Dernière actualisation: {datetime.now().strftime('%H:%M:%S')}",
-            icon_url="https://github.com/Momonga-OP/Start2000/blob/main/hourglass.png?raw=true"
-        )
-        
-        return embed
-
-    async def ensure_panel(self):
-        """Ensure the panel exists and is up-to-date."""
-        await self.update_member_counts()
-        
-        guild = self.bot.get_guild(GUILD_ID)
-        if not guild:
+            print("Guild not found. Check the GUILD_ID.")
             return
 
         channel = guild.get_channel(PING_DEF_CHANNEL_ID)
         if not channel:
+            print("Ping definition channel not found. Check the PING_DEF_CHANNEL_ID.")
             return
 
-        if not self.panel_message:
-            async for msg in channel.history(limit=20):
-                if msg.author == self.bot.user and msg.pinned:
-                    self.panel_message = msg
-                    break
+        guilds_data = await self.db.get_all_guilds()
+        view = GuildPingView(self.bot, guilds_data)
+        
+        message_content = (
+            "**🎯 Panneau d'Alerte DEF**\n\n"
+            "Bienvenue sur le Panneau d'Alerte Défense ! Cliquez sur le bouton de votre guilde ci-dessous pour envoyer une alerte à votre équipe. "
+            "💡 **Comment l'utiliser :**\n"
+            "1️⃣ Cliquez sur le bouton de votre guilde.\n"
+            "2️⃣ Vérifiez le canal d'alerte pour les mises à jour.\n"
+            "3️⃣ Ajoutez des notes aux alertes si nécessaire.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+        )
 
-        view = GuildPingView(self.bot, await self.db.get_all_guilds())
-        embed = await self.create_panel_embed()
+        async for message in channel.history(limit=50):
+            if message.pinned:
+                await message.edit(content=message_content, view=view)
+                print("Panel updated.")
+                return
 
-        if self.panel_message:
-            try:
-                await self.panel_message.edit(embed=embed, view=view)
-            except discord.NotFound:
-                self.panel_message = None
-                await self.ensure_panel()
-        else:
-            self.panel_message = await channel.send(embed=embed, view=view)
-            await self.panel_message.pin(reason="Mise à jour du panneau")
+        new_message = await channel.send(content=message_content, view=view)
+        await new_message.pin()
+        print("Panel created and pinned successfully.")
 
-    @app_commands.command(name="add_guild", description="Ajouter une nouvelle guilde au panneau d'alerte")
+    @app_commands.command(name="add_guilde", description="Ajouter une nouvelle guilde au panneau d'alerte")
     @app_commands.checks.has_permissions(administrator=True)
-    async def add_guild(
-            self,
-            interaction: discord.Interaction,
-            guild_name: str,
-            emoji_id: str,
-            role_id: str
+    async def add_guilde(
+        self,
+        interaction: discord.Interaction,
+        guild_name: str,
+        emoji_id: str,
+        role: discord.Role
     ):
         try:
-            role_id_int = int(role_id)
-            role = interaction.guild.get_role(role_id_int)
-            if not role:
-                await interaction.response.send_message("Le rôle spécifié n'existe pas.", ephemeral=True)
-                return
-
-            try:
-                if len(emoji_id) <= 2:  # Unicode emoji
-                    pass
-                else:
-                    discord.PartialEmoji.from_str(emoji_id)
-            except:
-                await interaction.response.send_message("L'emoji spécifié n'est pas valide.", ephemeral=True)
-                return
-
-            success = await self.db.add_guild(guild_name, emoji_id, role_id_int)
-            if success:
-                await self.ensure_panel()
-                await interaction.response.send_message(f"La guilde {guild_name} a été ajoutée avec succès !",
-                                                     ephemeral=True)
-            else:
-                await interaction.response.send_message("Une erreur est survenue lors de l'ajout de la guilde.",
-                                                     ephemeral=True)
-        except ValueError:
-            await interaction.response.send_message("Le role_id doit être un nombre valide.", ephemeral=True)
+            await self.db.add_guild(guild_name, emoji_id, role.id)
+            await self.update_panel()
+            await interaction.response.send_message(
+                f"La guilde {guild_name} a été ajoutée avec succès !",
+                ephemeral=True
+            )
         except Exception as e:
-            await interaction.response.send_message(f"Une erreur est survenue: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(
+                f"Erreur lors de l'ajout de la guilde: {str(e)}",
+                ephemeral=True
+            )
 
-    @app_commands.command(name="remove_guild", description="Retirer une guilde du panneau d'alerte")
+    @app_commands.command(name="remove_guilde", description="Retirer une guilde du panneau d'alerte")
     @app_commands.checks.has_permissions(administrator=True)
-    async def remove_guild(self, interaction: discord.Interaction, guild_name: str):
-        success = await self.db.remove_guild(guild_name)
-        if success:
-            await self.ensure_panel()
-            await interaction.response.send_message(f"La guilde {guild_name} a été retirée avec succès !",
-                                                 ephemeral=True)
-        else:
-            await interaction.response.send_message("La guilde spécifiée n'a pas été trouvée.", ephemeral=True)
-
-    @app_commands.command(name="update_panel", description="Mettre à jour ou poster le panneau d'alerte")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def update_panel_command(self, interaction: discord.Interaction):
+    async def remove_guilde(self, interaction: discord.Interaction, guild_name: str):
         try:
-            await interaction.response.defer(ephemeral=True)
-            await self.ensure_panel()
-            await interaction.followup.send("Le panneau d'alerte a été mis à jour avec succès !", ephemeral=True)
+            await self.db.remove_guild(guild_name)
+            await self.update_panel()
+            await interaction.response.send_message(
+                f"La guilde {guild_name} a été retirée avec succès !",
+                ephemeral=True
+            )
         except Exception as e:
-            print(f"Error in update_panel_command: {e}")
-            await interaction.followup.send("Une erreur est survenue lors de la mise à jour du panneau.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Erreur lors de la suppression de la guilde: {str(e)}",
+                ephemeral=True
+            )
 
     @commands.Cog.listener()
     async def on_ready(self):
-        try:
-            if not self.is_synced:
-                await self.bot.tree.sync()
-                self.is_synced = True
-
-            guild = self.bot.get_guild(GUILD_ID)
-            if guild:
-                alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
-                ping_channel = guild.get_channel(PING_DEF_CHANNEL_ID)
-                
-                if alert_channel:
-                    await alert_channel.set_permissions(
-                        guild.default_role, 
-                        send_messages=False, 
-                        add_reactions=False
-                    )
-                    print("Alert channel permissions updated.")
-                
-                if ping_channel:
-                    await ping_channel.set_permissions(
-                        guild.default_role,
-                        send_messages=False,
-                        add_reactions=False
-                    )
-                    print("Ping channel permissions updated.")
-                
-                # Create initial panel on startup
-                await self.update_panel()
-            
-            print("Bot is fully ready.")
-        except Exception as e:
-            print(f"Error in on_ready: {e}")
+        await self.update_panel()
+        
+        guild = self.bot.get_guild(GUILD_ID)
+        alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
+        if alert_channel:
+            await alert_channel.set_permissions(
+                guild.default_role,
+                send_messages=False,
+                add_reactions=False
+            )
+            print("Alert channel permissions updated.")
+        
+        print("Bot is ready.")
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(SecondServerCog(bot))
+    db = Database()
+    await db.connect()
+    await bot.add_cog(SecondServerCog(bot, db))
