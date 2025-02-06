@@ -6,6 +6,7 @@ import random
 import asyncpg
 import os
 from typing import Dict, Any
+from datetime import datetime
 
 # Configuration
 GUILD_ID = 1234250450681724938  # Replace with your guild ID
@@ -250,6 +251,8 @@ class SecondServerCog(commands.Cog):
         self.db = Database()
         self.is_synced = False
         self.panel_message = None  # Add this to track the panel message
+        self.member_counts = {}  # Track member counts for each guild
+        self.cooldowns = {}  # Track cooldowns for guild pings
 
     async def cog_load(self):
         try:
@@ -257,55 +260,110 @@ class SecondServerCog(commands.Cog):
         except Exception as e:
             print(f"Failed to load database: {e}")
 
-    async def update_panel(self):
-        try:
-            guild = self.bot.get_guild(GUILD_ID)
-            if not guild:
-                print("Guild not found. Check the GUILD_ID.")
-                return
+    def create_progress_bar(self, percentage: float) -> str:
+        """Create a progress bar based on the percentage."""
+        filled = "█" * int(percentage * 10)
+        empty = "░" * (10 - len(filled))
+        return f"[{filled}{empty}] {int(percentage * 100)}%"
 
-            channel = guild.get_channel(PING_DEF_CHANNEL_ID)
-            if not channel:
-                print("Ping definition channel not found. Check the PING_DEF_CHANNEL_ID.")
-                return
+    def get_ping_stats(self, guild_name: str) -> Dict[str, int]:
+        """Get ping statistics for a guild."""
+        # Placeholder for actual stats logic
+        return {
+            "total_24h": random.randint(1, 20),
+            "activite_24h": random.randint(0, 100),
+        }
 
-            guild_data = await self.db.get_all_guilds()
-            if not guild_data:
-                print("No guild data found. Ensure guilds are added to the database.")
-                return
+    async def update_member_counts(self):
+        """Update the member counts for each guild."""
+        guild = self.bot.get_guild(GUILD_ID)
+        if not guild:
+            return
 
-            view = GuildPingView(self.bot, guild_data)
-            message_content = (
-                "**🎯 Panneau d'Alerte DEF**\n\n"
-                "Bienvenue sur le Panneau d'Alerte Défense ! Cliquez sur le bouton de votre guilde ci-dessous pour envoyer une alerte à votre équipe. "
-                "💡 **Comment l'utiliser :**\n"
-                "1️⃣ Cliquez sur le bouton de votre guilde.\n"
-                "2️⃣ Vérifiez le canal d'alerte pour les mises à jour.\n"
-                "3️⃣ Ajoutez des notes aux alertes si nécessaire.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
+        guild_data = await self.db.get_all_guilds()
+        for guild_name, data in guild_data.items():
+            role = guild.get_role(data["role_id"])
+            if role:
+                self.member_counts[guild_name] = len(role.members)
+
+    async def create_panel_embed(self) -> discord.Embed:
+        """Create the embed for the alert panel."""
+        total_connectes = sum(self.member_counts.values())
+
+        embed = discord.Embed(
+            title="🎯 Panneau d'Alerte DEF",
+            color=discord.Color.blue()
+        )
+        embed.set_author(
+            name="Système d'Alerte START",
+            icon_url="https://github.com/Momonga-OP/Start2000/blob/main/35_35-0%20(2).png?raw=true"
+        )
+        
+        embed.description = (
+            "```diff\n+ SYSTÈME D'ALERTE GUILDE [v2.7.0]\n```\n"
+            "**📋 Instructions :**\n"
+            "1️⃣ Cliquez sur le bouton de votre guilde\n"
+            "2️⃣ Suivez les mises à jour dans #║╟➢📯alertes-def \n"
+            "3️⃣ Ajoutez des notes si nécessaire\n\n"
+            f"👥 Membres connectés: {total_connectes}\n"
+            "```ansi\n[2;34m[!] Statut système: [0m[2;32mOPÉRATIONNEL[0m```"
+        )
+
+        for guild_name, count in self.member_counts.items():
+            stats = self.get_ping_stats(guild_name)
+            activite = self.create_progress_bar(stats['activite_24h'] / 100)
+            
+            valeur = (
+                f"```prolog\n"
+                f"[🟢 Connectés] {count}\n"
+                f"[📨 Pings 24h] {stats['total_24h']}\n"
+                f"[⏱ Cooldown] {'🟠 Actif' if self.cooldowns.get(guild_name) else '🟢 Inactif'}\n"
+                f"[📊 Activité] {activite}```"
+            )
+            
+            embed.add_field(
+                name=f"📌 {guild_name}",
+                value=valeur,
+                inline=True
             )
 
-            # Delete existing panel message if it exists
+        embed.set_footer(
+            text=f"Dernière actualisation: {datetime.now().strftime('%H:%M:%S')}",
+            icon_url="https://github.com/Momonga-OP/Start2000/blob/main/hourglass.png?raw=true"
+        )
+        
+        return embed
+
+    async def ensure_panel(self):
+        """Ensure the panel exists and is up-to-date."""
+        await self.update_member_counts()
+        
+        guild = self.bot.get_guild(GUILD_ID)
+        if not guild:
+            return
+
+        channel = guild.get_channel(PING_DEF_CHANNEL_ID)
+        if not channel:
+            return
+
+        if not self.panel_message:
+            async for msg in channel.history(limit=20):
+                if msg.author == self.bot.user and msg.pinned:
+                    self.panel_message = msg
+                    break
+
+        view = GuildPingView(self.bot, await self.db.get_all_guilds())
+        embed = await self.create_panel_embed()
+
+        if self.panel_message:
             try:
-                if self.panel_message:
-                    await self.panel_message.delete()
+                await self.panel_message.edit(embed=embed, view=view)
             except discord.NotFound:
-                pass
-
-            # Create a new panel message
-            self.panel_message = await channel.send(content=message_content, view=view)
-            
-            # Unpin all messages and pin the new one
-            async for message in channel.history(limit=50):
-                if message.pinned:
-                    await message.unpin()
-            await self.panel_message.pin()
-            
-            print("Panel created and pinned successfully.")
-
-        except Exception as e:
-            print(f"Detailed error in update_panel: {e}")
-            raise  # Re-raise the exception for debugging
+                self.panel_message = None
+                await self.ensure_panel()
+        else:
+            self.panel_message = await channel.send(embed=embed, view=view)
+            await self.panel_message.pin(reason="Mise à jour du panneau")
 
     @app_commands.command(name="add_guild", description="Ajouter une nouvelle guilde au panneau d'alerte")
     @app_commands.checks.has_permissions(administrator=True)
@@ -334,7 +392,7 @@ class SecondServerCog(commands.Cog):
 
             success = await self.db.add_guild(guild_name, emoji_id, role_id_int)
             if success:
-                await self.update_panel()
+                await self.ensure_panel()
                 await interaction.response.send_message(f"La guilde {guild_name} a été ajoutée avec succès !",
                                                      ephemeral=True)
             else:
@@ -350,7 +408,7 @@ class SecondServerCog(commands.Cog):
     async def remove_guild(self, interaction: discord.Interaction, guild_name: str):
         success = await self.db.remove_guild(guild_name)
         if success:
-            await self.update_panel()
+            await self.ensure_panel()
             await interaction.response.send_message(f"La guilde {guild_name} a été retirée avec succès !",
                                                  ephemeral=True)
         else:
@@ -361,7 +419,7 @@ class SecondServerCog(commands.Cog):
     async def update_panel_command(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer(ephemeral=True)
-            await self.update_panel()
+            await self.ensure_panel()
             await interaction.followup.send("Le panneau d'alerte a été mis à jour avec succès !", ephemeral=True)
         except Exception as e:
             print(f"Error in update_panel_command: {e}")
