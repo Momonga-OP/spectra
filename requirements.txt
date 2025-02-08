@@ -20,3 +20,4 @@ fuzzywuzzy
 python-Levenshtein
 onnxruntime
 asyncpg
+pyttsx3
