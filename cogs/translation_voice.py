@@ -19,6 +19,10 @@ logging.basicConfig(
     ]
 )
 
+# Constants for allowed server and channel
+ALLOWED_SERVER_ID = 1214430768143671377  # Replace with your server ID
+ALLOWED_CHANNEL_ID = 1351381443812655317  # Replace with your channel ID
+
 class AudioQueue:
     def __init__(self):
         self.queue = deque()
@@ -126,6 +130,10 @@ class TranslationVoice(commands.Cog):
 
         # Ignore empty messages
         if not message.content.strip():
+            return
+
+        # Check if the message is in the allowed server and channel
+        if message.guild.id != ALLOWED_SERVER_ID or message.channel.id != ALLOWED_CHANNEL_ID:
             return
 
         try:
