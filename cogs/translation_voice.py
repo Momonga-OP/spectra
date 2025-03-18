@@ -226,9 +226,9 @@ class TranslationVoice(commands.Cog):
                 del self.audio_queues[guild_id]
             await ctx.send("👋 Left the voice channel.")
             
-    @commands.command()
-    async def help(self, ctx):
-        """Display help information"""
+    @commands.command(name='translator_help')
+    async def translator_help(self, ctx):
+        """Display help information for the translator"""
         embed = discord.Embed(
             title="Translation Bot Help",
             description="This bot automatically translates messages between English and Spanish!",
@@ -244,7 +244,7 @@ class TranslationVoice(commands.Cog):
         embed.add_field(
             name="Commands",
             value="**/leave** - Make the bot leave the voice channel\n"
-                  "**/help** - Show this help message",
+                  "**/translator_help** - Show this help message",
             inline=False
         )
         
