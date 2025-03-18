@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from googletrans import Translator
-import pyttsx3
+from gtts import gTTS
 import os
 import asyncio
 from collections import deque
@@ -37,35 +37,9 @@ class TranslationVoice(commands.Cog):
         self.audio_queues: Dict[int, AudioQueue] = {}
         self.active_vc: Dict[int, discord.VoiceClient] = {}
         self.audio_folder = 'temp_audio'
-        self.setup_voice_engines()
         
         # Create audio folder if it doesn't exist
         os.makedirs(self.audio_folder, exist_ok=True)
-
-    def setup_voice_engines(self):
-        """Initialize the pyttsx3 engines for English and Spanish"""
-        self.engines = {}
-        
-        # English voice engine
-        en_engine = pyttsx3.init()
-        voices = en_engine.getProperty('voices')
-        en_engine.setProperty('voice', voices[0].id)  # Male voice
-        en_engine.setProperty('rate', 150)
-        en_engine.setProperty('volume', 0.9)
-        self.engines['en'] = en_engine
-        
-        # Spanish voice engine
-        es_engine = pyttsx3.init()
-        for voice in voices:
-            if 'spanish' in voice.name.lower():
-                es_engine.setProperty('voice', voice.id)
-                break
-        else:
-            # If no Spanish voice found, use default
-            es_engine.setProperty('voice', voices[0].id)
-        es_engine.setProperty('rate', 150)
-        es_engine.setProperty('volume', 0.9)
-        self.engines['es'] = es_engine
 
     def get_audio_file_path(self, message_id: int) -> str:
         return os.path.join(self.audio_folder, f'translated_{message_id}.mp3')
@@ -114,11 +88,10 @@ class TranslationVoice(commands.Cog):
                 await self.play_next(guild_id)
 
     def generate_audio(self, text: str, file_path: str, lang: str):
-        """Generate audio file using pyttsx3 with the appropriate language engine"""
+        """Generate audio file using gTTS with the appropriate language"""
         try:
-            engine = self.engines.get(lang, self.engines['en'])
-            engine.save_to_file(text, file_path)
-            engine.runAndWait()
+            tts = gTTS(text=text, lang=lang, slow=False)
+            tts.save(file_path)
         except Exception as e:
             logging.error(f"Error generating audio: {e}")
             raise
