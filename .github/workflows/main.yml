@@ -62,7 +62,8 @@ jobs:
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-
+      - name: Install eSpeak
+        run: sudo apt-get install -y espeak espeak-ng
       # Step 9: Run the bot
       - name: Run the bot
         env:
@@ -71,7 +72,7 @@ jobs:
         run: |
           source venv/bin/activate
           python main.py
-
+      
       # Step 10: Save data to repository
       - name: Commit database file
         if: success()
