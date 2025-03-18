@@ -5,8 +5,9 @@ import pyttsx3
 import os
 import asyncio
 from collections import deque
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import logging
+import re
 
 # Set up logging
 logging.basicConfig(
@@ -21,7 +22,6 @@ logging.basicConfig(
 class AudioQueue:
     def __init__(self):
         self.queue = deque()
-        self.current_playing = None
         self.is_playing = False
 
     async def add_to_queue(self, audio_file: str, message: discord.Message):
@@ -36,23 +36,36 @@ class TranslationVoice(commands.Cog):
         self.translator = Translator()
         self.audio_queues: Dict[int, AudioQueue] = {}
         self.active_vc: Dict[int, discord.VoiceClient] = {}
-        self.text_channel_id = 1258426636496404510  # Your channel ID here
-        self.target_language = 'fr'
         self.audio_folder = 'temp_audio'
-        self.setup_voice_engine()
+        self.setup_voice_engines()
         
         # Create audio folder if it doesn't exist
         os.makedirs(self.audio_folder, exist_ok=True)
 
-    def setup_voice_engine(self):
-        """Initialize the pyttsx3 engine with male voice"""
-        self.engine = pyttsx3.init()
-        voices = self.engine.getProperty('voices')
-        # Set male voice (usually index 0)
-        self.engine.setProperty('voice', voices[0].id)
-        # Adjust speed and volume as needed
-        self.engine.setProperty('rate', 150)
-        self.engine.setProperty('volume', 0.9)
+    def setup_voice_engines(self):
+        """Initialize the pyttsx3 engines for English and Spanish"""
+        self.engines = {}
+        
+        # English voice engine
+        en_engine = pyttsx3.init()
+        voices = en_engine.getProperty('voices')
+        en_engine.setProperty('voice', voices[0].id)  # Male voice
+        en_engine.setProperty('rate', 150)
+        en_engine.setProperty('volume', 0.9)
+        self.engines['en'] = en_engine
+        
+        # Spanish voice engine
+        es_engine = pyttsx3.init()
+        for voice in voices:
+            if 'spanish' in voice.name.lower():
+                es_engine.setProperty('voice', voice.id)
+                break
+        else:
+            # If no Spanish voice found, use default
+            es_engine.setProperty('voice', voices[0].id)
+        es_engine.setProperty('rate', 150)
+        es_engine.setProperty('volume', 0.9)
+        self.engines['es'] = es_engine
 
     def get_audio_file_path(self, message_id: int) -> str:
         return os.path.join(self.audio_folder, f'translated_{message_id}.mp3')
@@ -100,32 +113,66 @@ class TranslationVoice(commands.Cog):
                 logging.error(f"Error starting playback: {e}")
                 await self.play_next(guild_id)
 
-    def generate_audio(self, text: str, file_path: str):
-        """Generate audio file using pyttsx3"""
+    def generate_audio(self, text: str, file_path: str, lang: str):
+        """Generate audio file using pyttsx3 with the appropriate language engine"""
         try:
-            self.engine.save_to_file(text, file_path)
-            self.engine.runAndWait()
+            engine = self.engines.get(lang, self.engines['en'])
+            engine.save_to_file(text, file_path)
+            engine.runAndWait()
         except Exception as e:
             logging.error(f"Error generating audio: {e}")
             raise
 
+    def detect_language(self, text: str) -> str:
+        """Detect if text is primarily English or Spanish"""
+        # Simple detection based on common words
+        es_words = ['el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'pero', 'porque', 'como', 'qué', 'quién', 'cuándo', 'dónde', 'por qué']
+        
+        # Clean the text and convert to lowercase
+        clean_text = re.sub(r'[^\w\s]', '', text.lower())
+        words = clean_text.split()
+        
+        # Count Spanish words
+        spanish_count = sum(1 for word in words if word in es_words)
+        
+        # If at least 20% of words are Spanish markers, consider it Spanish
+        if spanish_count / max(len(words), 1) >= 0.2:
+            return 'es'
+        return 'en'
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author.bot or message.channel.id != self.text_channel_id:
+        # Ignore messages from bots or in threads
+        if message.author.bot or isinstance(message.channel, discord.Thread):
+            return
+            
+        # Ignore if message is a command
+        ctx = await self.bot.get_context(message)
+        if ctx.valid:
+            return
+
+        # Ignore empty messages
+        if not message.content.strip():
             return
 
         try:
+            # Detect language of the message
+            detected_lang = self.detect_language(message.content)
+            
+            # Set target language based on detected language
+            target_lang = 'es' if detected_lang == 'en' else 'en'
+            
             # Translate the message
             translated = await self.bot.loop.run_in_executor(
                 None,
-                lambda: self.translator.translate(message.content, src='auto', dest=self.target_language)
+                lambda: self.translator.translate(message.content, src=detected_lang, dest=target_lang)
             )
             
-            # Generate audio file with male voice
+            # Generate audio file with appropriate voice
             audio_file = self.get_audio_file_path(message.id)
             await self.bot.loop.run_in_executor(
                 None,
-                lambda: self.generate_audio(translated.text, audio_file)
+                lambda: self.generate_audio(translated.text, audio_file, target_lang)
             )
 
             # Handle voice channel connection
@@ -144,7 +191,7 @@ class TranslationVoice(commands.Cog):
                     except Exception as e:
                         logging.error(f"Error connecting to voice: {e}")
                         await self.cleanup_audio_file(audio_file)
-                        raise
+                        return
 
                 # Add to queue and start playing if not already playing
                 queue = self.audio_queues[guild_id]
@@ -154,10 +201,12 @@ class TranslationVoice(commands.Cog):
                     queue.is_playing = True
                     await self.play_next(guild_id)
 
-            # Send text translation
-            flag = '🇫🇷' if self.target_language == 'fr' else '🌐'
+            # Send text translation with appropriate flag
+            flag = '🇪🇸' if target_lang == 'es' else '🇺🇸'
+            source_flag = '🇺🇸' if detected_lang == 'en' else '🇪🇸'
+            
             await message.channel.send(
-                f"{flag} **Original:** {message.content}\n"
+                f"{source_flag} **Original:** {message.content}\n"
                 f"{flag} **Translated:** {translated.text}"
             )
 
@@ -176,6 +225,30 @@ class TranslationVoice(commands.Cog):
             if guild_id in self.audio_queues:
                 del self.audio_queues[guild_id]
             await ctx.send("👋 Left the voice channel.")
+            
+    @commands.command()
+    async def help(self, ctx):
+        """Display help information"""
+        embed = discord.Embed(
+            title="Translation Bot Help",
+            description="This bot automatically translates messages between English and Spanish!",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="How it works",
+            value="Just type messages in English or Spanish, and the bot will automatically translate them and speak the translation if you're in a voice channel.",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Commands",
+            value="**/leave** - Make the bot leave the voice channel\n"
+                  "**/help** - Show this help message",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(TranslationVoice(bot))
