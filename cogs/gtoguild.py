@@ -2,101 +2,127 @@ import discord
 from discord.ext import commands
 from discord.ui import View, Button, Modal, TextInput
 import random
+from typing import Dict, Any
 
-# Configuration
-GUILD_ID = 1234250450681724938  # Replace with your guild ID
-PING_DEF_CHANNEL_ID = 1307664199438307382  # Replace with your ping channel ID
-ALERTE_DEF_CHANNEL_ID = 1307778272914051163  # Replace with your alert channel ID
-
-# Guild emojis with IDs and corresponding role IDs
-GUILD_EMOJIS_ROLES = {
-    "GTO": {"emoji": "<:GTO:1307691528096845905>", "role_id": 1234253501308080239},
+# Configuration Constants
+GUILD_CONFIG: Dict[str, Any] = {
+    "id": 1234250450681724938,
+    "ping_channel_id": 1307664199438307382,
+    "alert_channel_id": 1307778272914051163,
+    "emojis_roles": {
+        "GTO": {
+            "emoji": "<:GTO:1307691528096845905>", 
+            "role_id": 1234253501308080239
+        },
+        # Easily extendable for more guilds
+    }
 }
 
-# French alert messages
+# Enhanced Alert Messages with more variety
 ALERT_MESSAGES = [
-    "🚨 {role} Alerte DEF ! Connectez-vous maintenant !",
-    "⚔️ {role}, il est temps de défendre !",
-    "🛡️ {role} Défendez votre guilde !",
-    "💥 {role} est attaquée ! Rejoignez la défense !",
-    "⚠️ {role}, mobilisez votre équipe pour défendre !",
+    "🚨 {role} Alerte DEF urgente ! Tous aux remparts !",
+    "⚔️ {role}, la bataille commence maintenant !",
+    "🛡️ Défense requise immédiatement pour {role} !",
+    "💥 Alerte critique pour {role} - Mobilisation générale !",
+    "⚠️ {role}, votre présence est cruciale pour la défense !",
+    "🏰 {role}, notre forteresse est menacée !",
+    "📡 Signal d'urgence pour {role} - Réaction immédiate nécessaire !",
 ]
 
-
-class NoteModal(Modal):
+class ComprehensiveNoteModal(Modal):
+    """Enhanced modal for adding comprehensive notes to alerts."""
     def __init__(self, message: discord.Message):
-        super().__init__(title="Ajouter une note")
+        super().__init__(title="📝 Détails de l'Alerte")
         self.message = message
 
         self.note_input = TextInput(
-            label="Votre note",
-            placeholder="Ajoutez des détails sur l'alerte (nom de la guilde attaquante, heure, etc.)",
-            max_length=100,
+            label="Informations Détaillées",
+            placeholder="Ajoutez des détails (attaquant, heure, stratégie, etc.)",
             style=discord.TextStyle.paragraph,
+            max_length=200,
+            required=True
         )
         self.add_item(self.note_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        embed = self.message.embeds[0] if self.message.embeds else None
-        if not embed:
-            await interaction.response.send_message("Impossible de récupérer l'embed à modifier.", ephemeral=True)
-            return
+        """Process and add note to the alert message."""
+        try:
+            embed = self.message.embeds[0] if self.message.embeds else None
+            if not embed:
+                await interaction.response.send_message("Impossible de modifier l'alerte.", ephemeral=True)
+                return
 
-        existing_notes = embed.fields[0].value if embed.fields else "Aucune note."
-        updated_notes = f"{existing_notes}\n- **{interaction.user.display_name}**: {self.note_input.value.strip()}"
-        embed.clear_fields()
-        embed.add_field(name="📝 Notes", value=updated_notes, inline=False)
-
-        await self.message.edit(embed=embed)
-        await interaction.response.send_message("Votre note a été ajoutée avec succès !", ephemeral=True)
+            existing_notes = embed.fields[0].value if embed.fields else "Aucune note."
+            updated_notes = (
+                f"{existing_notes}\n"
+                f"- **{interaction.user.display_name}**: {self.note_input.value.strip()}"
+            )
+            
+            embed.clear_fields()
+            embed.add_field(name="📝 Notes Détaillées", value=updated_notes, inline=False)
+            
+            await self.message.edit(embed=embed)
+            await interaction.response.send_message("Note ajoutée avec succès !", ephemeral=True)
+        
+        except Exception as e:
+            await interaction.response.send_message(f"Erreur lors de l'ajout de la note : {e}", ephemeral=True)
 
 
 class AlertActionView(View):
+    """Advanced view for managing defense alerts."""
     def __init__(self, bot: commands.Bot, message: discord.Message):
         super().__init__(timeout=None)
         self.bot = bot
         self.message = message
         self.is_locked = False
 
-        self.add_note_button = Button(
-            label="Ajouter une note",
-            style=discord.ButtonStyle.secondary,
-            emoji="📝"
-        )
-        self.add_note_button.callback = self.add_note_callback
-        self.add_item(self.add_note_button)
+        # Add interactive buttons with clear styles and emojis
+        buttons = [
+            {
+                "label": "Ajouter Note", 
+                "style": discord.ButtonStyle.secondary, 
+                "emoji": "📝", 
+                "callback": self.add_note_callback
+            },
+            {
+                "label": "Victoire", 
+                "style": discord.ButtonStyle.success, 
+                "emoji": "✅", 
+                "callback": lambda i: self.mark_alert(i, "Gagnée", discord.Color.green())
+            },
+            {
+                "label": "Défaite", 
+                "style": discord.ButtonStyle.danger, 
+                "emoji": "❌", 
+                "callback": lambda i: self.mark_alert(i, "Perdue", discord.Color.red())
+            }
+        ]
 
-        self.won_button = Button(
-            label="Won",
-            style=discord.ButtonStyle.success,
-        )
-        self.won_button.callback = self.mark_as_won
-        self.add_item(self.won_button)
-
-        self.lost_button = Button(
-            label="Lost",
-            style=discord.ButtonStyle.danger,
-        )
-        self.lost_button.callback = self.mark_as_lost
-        self.add_item(self.lost_button)
+        for btn_config in buttons:
+            button = Button(
+                label=btn_config["label"], 
+                style=btn_config["style"], 
+                emoji=btn_config["emoji"]
+            )
+            button.callback = btn_config["callback"]
+            self.add_item(button)
 
     async def add_note_callback(self, interaction: discord.Interaction):
-        if interaction.channel_id != ALERTE_DEF_CHANNEL_ID:
-            await interaction.response.send_message("Vous ne pouvez pas ajouter de note ici.", ephemeral=True)
+        """Validate and open note modal."""
+        if interaction.channel_id != GUILD_CONFIG['alert_channel_id']:
+            await interaction.response.send_message(
+                "Les notes ne peuvent être ajoutées que dans le canal d'alerte.", 
+                ephemeral=True
+            )
             return
 
-        modal = NoteModal(self.message)
+        modal = ComprehensiveNoteModal(self.message)
         await interaction.response.send_modal(modal)
 
-    async def mark_as_won(self, interaction: discord.Interaction):
-        await self.mark_alert(interaction, "Gagnée", discord.Color.green())
-
-    async def mark_as_lost(self, interaction: discord.Interaction):
-        await self.mark_alert(interaction, "Perdue", discord.Color.red())
-
     async def mark_alert(self, interaction: discord.Interaction, status: str, color: discord.Color):
+        """Mark alert as won or lost with comprehensive handling."""
         if self.is_locked:
-            await interaction.response.send_message("Cette alerte a déjà été marquée.", ephemeral=True)
+            await interaction.response.send_message("Cette alerte est déjà verrouillée.", ephemeral=True)
             return
 
         self.is_locked = True
@@ -106,17 +132,81 @@ class AlertActionView(View):
 
         embed = self.message.embeds[0]
         embed.color = color
-        embed.add_field(name="Statut", value=f"L'alerte a été marquée comme **{status}** par {interaction.user.mention}.", inline=False)
+        embed.add_field(
+            name="🏁 Statut Final", 
+            value=f"Alerte marquée **{status}** par {interaction.user.mention}", 
+            inline=False
+        )
 
         await self.message.edit(embed=embed)
-        await interaction.response.send_message(f"Alerte marquée comme **{status}** avec succès.", ephemeral=True)
+        await interaction.response.send_message(f"Alerte marquée **{status}** avec succès.", ephemeral=True)
+
+
+class DefenseAlertCog(commands.Cog):
+    """Comprehensive cog for managing defense alerts."""
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    async def setup_alert_panel(self):
+        """Robust method to ensure alert panel exists and is up-to-date."""
+        try:
+            guild = self.bot.get_guild(GUILD_CONFIG['id'])
+            if not guild:
+                print("Erreur : Guilde non trouvée.")
+                return
+
+            channel = guild.get_channel(GUILD_CONFIG['ping_channel_id'])
+            if not channel:
+                print("Erreur : Canal de ping non trouvé.")
+                return
+
+            view = GuildPingView(self.bot)
+            message_content = (
+                "**🎯 Panneau d'Alerte Défense**\n\n"
+                "Cliquez sur le bouton de votre guilde pour alerter votre équipe.\n"
+                "📋 **Mode d'emploi :**\n"
+                "• Sélectionnez votre guilde\n"
+                "• Vérifiez le canal d'alerte\n"
+                "• Ajoutez des notes si nécessaire\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+            )
+
+            async for message in channel.history(limit=50):
+                if message.pinned:
+                    await message.edit(content=message_content, view=view)
+                    return
+
+            new_message = await channel.send(content=message_content, view=view)
+            await new_message.pin()
+
+        except Exception as e:
+            print(f"Erreur lors de la configuration du panneau : {e}")
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Enhanced ready event handler."""
+        await self.setup_alert_panel()
+        
+        guild = self.bot.get_guild(GUILD_CONFIG['id'])
+        alert_channel = guild.get_channel(GUILD_CONFIG['alert_channel_id'])
+        
+        if alert_channel:
+            await alert_channel.set_permissions(
+                guild.default_role, 
+                send_messages=False, 
+                add_reactions=False
+            )
+        
+        print("🚀 Bot prêt et configuré avec succès !")
 
 
 class GuildPingView(View):
+    """Dynamic view for guild-specific pings."""
     def __init__(self, bot: commands.Bot):
         super().__init__(timeout=None)
         self.bot = bot
-        for guild_name, data in GUILD_EMOJIS_ROLES.items():
+        
+        for guild_name, data in GUILD_CONFIG['emojis_roles'].items():
             button = Button(
                 label=f"  {guild_name.upper()}  ",
                 emoji=data["emoji"],
@@ -125,99 +215,62 @@ class GuildPingView(View):
             button.callback = self.create_ping_callback(guild_name, data["role_id"])
             self.add_item(button)
 
-    def create_ping_callback(self, guild_name, role_id):
+    def create_ping_callback(self, guild_name: str, role_id: int):
+        """Create a dynamic callback for each guild button."""
         async def callback(interaction: discord.Interaction):
             try:
-                if interaction.guild_id != GUILD_ID:
+                if interaction.guild_id != GUILD_CONFIG['id']:
                     await interaction.response.send_message(
-                        "Cette fonction n'est pas disponible sur ce serveur.", ephemeral=True
+                        "Cette fonction n'est pas disponible ici.", 
+                        ephemeral=True
                     )
                     return
 
-                alert_channel = interaction.guild.get_channel(ALERTE_DEF_CHANNEL_ID)
-                if not alert_channel:
-                    await interaction.response.send_message("Canal d'alerte introuvable !", ephemeral=True)
-                    return
-
+                alert_channel = interaction.guild.get_channel(GUILD_CONFIG['alert_channel_id'])
                 role = interaction.guild.get_role(role_id)
-                if not role:
-                    await interaction.response.send_message(f"Rôle pour {guild_name} introuvable !", ephemeral=True)
+
+                if not alert_channel or not role:
+                    await interaction.response.send_message(
+                        "Configuration incorrecte. Contactez un administrateur.", 
+                        ephemeral=True
+                    )
                     return
 
                 alert_message = random.choice(ALERT_MESSAGES).format(role=role.mention)
                 embed = discord.Embed(
-                    title="🔔 Alerte envoyée !",
-                    description=f"**{interaction.user.mention}** a déclenché une alerte pour **{guild_name}**.",
+                    title="🚨 Alerte de Défense",
+                    description=f"{interaction.user.mention} a déclenché une alerte pour **{guild_name}**.",
                     color=discord.Color.red()
                 )
-                embed.set_thumbnail(url=interaction.user.avatar.url if interaction.user.avatar else interaction.user.default_avatar.url)
+                embed.set_thumbnail(
+                    url=interaction.user.avatar.url 
+                    if interaction.user.avatar 
+                    else interaction.user.default_avatar.url
+                )
                 embed.add_field(name="📝 Notes", value="Aucune note.", inline=False)
 
-                sent_message = await alert_channel.send(content=alert_message, embed=embed)
+                sent_message = await alert_channel.send(
+                    content=alert_message, 
+                    embed=embed
+                )
                 view = AlertActionView(self.bot, sent_message)
                 await sent_message.edit(view=view)
 
                 await interaction.response.send_message(
-                    f"Alerte envoyée à {guild_name} dans le canal d'alerte !", ephemeral=True
+                    f"Alerte envoyée pour {guild_name} !", 
+                    ephemeral=True
                 )
 
             except Exception as e:
-                print(f"Error in ping callback for {guild_name}: {e}")
-                await interaction.response.send_message("Une erreur est survenue.", ephemeral=True)
+                print(f"Erreur lors de l'envoi de l'alerte : {e}")
+                await interaction.response.send_message(
+                    "Une erreur inattendue s'est produite.", 
+                    ephemeral=True
+                )
 
         return callback
 
 
-class SecondServerCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-
-    async def ensure_panel(self):
-        guild = self.bot.get_guild(GUILD_ID)
-        if not guild:
-            print("Guild not found. Check the GUILD_ID.")
-            return
-
-        channel = guild.get_channel(PING_DEF_CHANNEL_ID)
-        if not channel:
-            print("Ping definition channel not found. Check the PING_DEF_CHANNEL_ID.")
-            return
-
-        view = GuildPingView(self.bot)
-        message_content = (
-            "**🎯 Panneau d'Alerte DEF**\n\n"
-            "Bienvenue sur le Panneau d'Alerte Défense ! Cliquez sur le bouton de votre guilde ci-dessous pour envoyer une alerte à votre équipe. "
-            "💡 **Comment l'utiliser :**\n"
-            "1️⃣ Cliquez sur le bouton de votre guilde.\n"
-            "2️⃣ Vérifiez le canal d'alerte pour les mises à jour.\n"
-            "3️⃣ Ajoutez des notes aux alertes si nécessaire.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-        )
-
-        async for message in channel.history(limit=50):
-            if message.pinned:
-                await message.edit(content=message_content, view=view)
-                print("Panel updated.")
-                return
-
-        new_message = await channel.send(content=message_content, view=view)
-        await new_message.pin()
-        print("Panel created and pinned successfully.")
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        await self.ensure_panel()
-
-        guild = self.bot.get_guild(GUILD_ID)
-        alert_channel = guild.get_channel(ALERTE_DEF_CHANNEL_ID)
-        if alert_channel:
-            await alert_channel.set_permissions(
-                guild.default_role, send_messages=False, add_reactions=False
-            )
-            print("Alert channel permissions updated.")
-
-        print("Bot is ready.")
-
-
 async def setup(bot: commands.Bot):
-    await bot.add_cog(SecondServerCog(bot))
+    """Setup function for the cog."""
+    await bot.add_cog(DefenseAlertCog(bot))
