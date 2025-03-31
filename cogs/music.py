@@ -1,67 +1,64 @@
 import discord
-from discord.ext import commands
-from discord import FFmpegPCMAudio
 from discord import app_commands
+from discord.ext import commands
 import asyncio
 import os
 
-USER_ID = 486652069831376943  # Updated your ID
+BOT_OWNER_ID = 486652069831376943  # Only you can upload music
+MUSIC_FILE = "music.mp3"  # Temporary storage for the uploaded file
 
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.voice_clients = {}
-        self.welcoming_enabled = True  # Track the state of welcoming feature
+        self.voice_clients = {}  # Store voice clients per guild
 
-    async def disable_welcoming(self):
-        self.welcoming_enabled = False
-
-    async def enable_welcoming(self):
-        self.welcoming_enabled = True
-
-    @app_commands.command(name="music", description="Plays music")
+    @app_commands.command(name="music", description="Plays music in all servers where Spectra is in.")
     async def music(self, interaction: discord.Interaction):
-        if interaction.user.id != USER_ID:
-            return await interaction.response.send_message("You are not allowed to use this command.", ephemeral=True)
+        if interaction.user.id != BOT_OWNER_ID:
+            return await interaction.response.send_message("You are not allowed to use this command!", ephemeral=True)
         
-        if interaction.user.voice and interaction.user.voice.channel:
-            channel = interaction.user.voice.channel
-        else:
-            return await interaction.response.send_message("You need to be in a voice channel.", ephemeral=True)
+        await interaction.response.send_message("Please upload the music file in DMs.", ephemeral=True)
+        dm_channel = await interaction.user.create_dm()
+        await dm_channel.send("Upload an MP3 file to start playing in all servers.")
 
-        vc = await channel.connect()
-        self.voice_clients[interaction.user.id] = vc
-        await interaction.response.send_message("What do you want?")
-        await asyncio.sleep(5)
-        await interaction.followup.send("Okay, I will see what I can do with that.")
-        
-        def check(m):
-            return m.author.id == USER_ID and isinstance(m.channel, discord.DMChannel) and m.attachments
+        def check(msg):
+            return msg.author.id == BOT_OWNER_ID and msg.attachments and msg.attachments[0].filename.endswith(".mp3")
 
-        await interaction.user.send("Upload an MP3 file.")
-        msg = await self.bot.wait_for("message", check=check)
-        attachment = msg.attachments[0]
+        try:
+            msg = await self.bot.wait_for("message", check=check, timeout=60)
+            await msg.attachments[0].save(MUSIC_FILE)
+            await dm_channel.send("Music uploaded! Starting playback.")
+            
+            await self.play_music_globally()
+        except asyncio.TimeoutError:
+            await dm_channel.send("Music upload timed out. Try again.")
 
-        if not attachment.filename.endswith(".mp3"):
-            return await interaction.user.send("Please upload a valid MP3 file.")
+    async def play_music_globally(self):
+        for guild in self.bot.guilds:
+            if guild.id in self.voice_clients:
+                continue  # Already connected
+            
+            voice_channel = None
+            for channel in guild.voice_channels:
+                if channel.permissions_for(guild.me).connect:
+                    voice_channel = channel
+                    break
 
-        file_path = f"music_{interaction.user.id}.mp3"
-        await attachment.save(file_path)
+            if voice_channel:
+                vc = await voice_channel.connect()
+                self.voice_clients[guild.id] = vc
+                self.bot.loop.create_task(self.loop_music(vc))
+            else:
+                print(f"No available voice channel in {guild.name} ({guild.id})")
 
-        await self.disable_welcoming()
-        
-        vc.play(FFmpegPCMAudio(file_path), after=lambda e: asyncio.run_coroutine_threadsafe(self.enable_welcoming(), self.bot.loop))
-        
-        await interaction.user.send("Playing your music now.")
-        while vc.is_playing():
-            await asyncio.sleep(1)
-
-        await asyncio.sleep(1)
-        await self.enable_welcoming()
-        
-        await vc.disconnect()
-        del self.voice_clients[interaction.user.id]
-        os.remove(file_path)
+    async def loop_music(self, vc):
+        while True:
+            if os.path.exists(MUSIC_FILE):
+                vc.play(discord.FFmpegPCMAudio(MUSIC_FILE), after=lambda e: None)
+                while vc.is_playing():
+                    await asyncio.sleep(1)
+            else:
+                await asyncio.sleep(10)
 
 async def setup(bot):
     await bot.add_cog(Music(bot))
