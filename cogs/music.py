@@ -42,7 +42,7 @@ class Music(commands.Cog):
                    msg.attachments[0].filename.lower().endswith(".mp3"))
 
         try:
-            msg = await self.bot.wait_for("message", check=check, timeout=120)
+            msg = await self.bot.wait_for("message", check=check, timeout=600)
             
             # Stop any existing playback
             await self.stop_all_playback()
