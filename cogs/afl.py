@@ -9,7 +9,7 @@ class AFLPanel(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.panel_message: Optional[discord.Message] = None
-        self.PANEL_CHANNEL_ID = 1357969344633769994
+        self.PANEL_CHANNEL_ID = 1247728759780413480
 
     async def create_panel_embed(self, is_admin: bool) -> discord.Embed:
         embed = discord.Embed(
