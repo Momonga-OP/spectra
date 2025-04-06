@@ -4,6 +4,7 @@ from discord import app_commands
 import random
 import asyncio
 import datetime
+import re
 
 OWNER_ID = 486652069831376943  # Only this user can use the command
 
@@ -50,10 +51,45 @@ THEMES = {
     }
 }
 
+# Font styles for channel names
+FONTS = {
+    "aesthetic": {
+        "a": "ａ", "b": "ｂ", "c": "ｃ", "d": "ｄ", "e": "ｅ", "f": "ｆ", "g": "ｇ", "h": "ｈ", "i": "ｉ", "j": "ｊ",
+        "k": "ｋ", "l": "ｌ", "m": "ｍ", "n": "ｎ", "o": "ｏ", "p": "ｐ", "q": "ｑ", "r": "ｒ", "s": "ｓ", "t": "ｔ",
+        "u": "ｕ", "v": "ｖ", "w": "ｗ", "x": "ｘ", "y": "ｙ", "z": "ｚ", "0": "０", "1": "１", "2": "２", "3": "３",
+        "4": "４", "5": "５", "6": "６", "7": "７", "8": "８", "9": "９", " ": "　"
+    },
+    "bold": {
+        "a": "𝗮", "b": "𝗯", "c": "𝗰", "d": "𝗱", "e": "𝗲", "f": "𝗳", "g": "𝗴", "h": "𝗵", "i": "𝗶", "j": "𝗷",
+        "k": "𝗸", "l": "𝗹", "m": "𝗺", "n": "𝗻", "o": "𝗼", "p": "𝗽", "q": "𝗾", "r": "𝗿", "s": "𝘀", "t": "𝘁",
+        "u": "𝘂", "v": "𝘃", "w": "𝘄", "x": "𝘅", "y": "𝘆", "z": "𝘇", "0": "𝟬", "1": "𝟭", "2": "𝟮", "3": "𝟯",
+        "4": "𝟰", "5": "𝟱", "6": "𝟲", "7": "𝟳", "8": "𝟴", "9": "𝟵", " ": " "
+    },
+    "cursive": {
+        "a": "𝓪", "b": "𝓫", "c": "𝓬", "d": "𝓭", "e": "𝓮", "f": "𝓯", "g": "𝓰", "h": "𝓱", "i": "𝓲", "j": "𝓳",
+        "k": "𝓴", "l": "𝓵", "m": "𝓶", "n": "𝓷", "o": "𝓸", "p": "𝓹", "q": "𝓺", "r": "𝓻", "s": "𝓼", "t": "𝓽",
+        "u": "𝓾", "v": "𝓿", "w": "𝔀", "x": "𝔁", "y": "𝔂", "z": "𝔃", "0": "0", "1": "1", "2": "2", "3": "3",
+        "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", " ": " "
+    },
+    "monospace": {
+        "a": "𝚊", "b": "𝚋", "c": "𝚌", "d": "𝚍", "e": "𝚎", "f": "𝚏", "g": "𝚐", "h": "𝚑", "i": "𝚒", "j": "𝚓",
+        "k": "𝚔", "l": "𝚕", "m": "𝚖", "n": "𝚗", "o": "𝚘", "p": "𝚙", "q": "𝚚", "r": "𝚛", "s": "𝚜", "t": "𝚝",
+        "u": "𝚞", "v": "𝚟", "w": "𝚠", "x": "𝚡", "y": "𝚢", "z": "𝚣", "0": "𝟶", "1": "𝟷", "2": "𝟸", "3": "𝟹",
+        "4": "𝟺", "5": "𝟻", "6": "𝟼", "7": "𝟽", "8": "𝟾", "9": "𝟿", " ": " "
+    },
+    "small-caps": {
+        "a": "ᴀ", "b": "ʙ", "c": "ᴄ", "d": "ᴅ", "e": "ᴇ", "f": "ꜰ", "g": "ɢ", "h": "ʜ", "i": "ɪ", "j": "ᴊ",
+        "k": "ᴋ", "l": "ʟ", "m": "ᴍ", "n": "ɴ", "o": "ᴏ", "p": "ᴘ", "q": "ǫ", "r": "ʀ", "s": "s", "t": "ᴛ",
+        "u": "ᴜ", "v": "ᴠ", "w": "ᴡ", "x": "x", "y": "ʏ", "z": "ᴢ", "0": "0", "1": "1", "2": "2", "3": "3",
+        "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", " ": " "
+    }
+}
+
 class Makeup(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.backup = {}
+        self.font_backup = {}
         
     @app_commands.command(name="makeup", description="Give your server a fantastic makeover!")
     @app_commands.describe(theme="Choose a theme for your server makeover")
@@ -96,6 +132,50 @@ class Makeup(commands.Cog):
         
         await progress_message.edit(content="", embed=embed)
     
+    @app_commands.command(name="font", description="Change the font style of channel names")
+    @app_commands.describe(style="Choose a font style for your channel names")
+    @app_commands.choices(style=[
+        app_commands.Choice(name="Aesthetic", value="aesthetic"),
+        app_commands.Choice(name="Bold", value="bold"),
+        app_commands.Choice(name="Cursive", value="cursive"),
+        app_commands.Choice(name="Monospace", value="monospace"),
+        app_commands.Choice(name="Small Caps", value="small-caps"),
+        app_commands.Choice(name="Normal", value="normal")
+    ])
+    async def font(self, interaction: discord.Interaction, style: str):
+        # Check if user is the bot owner
+        if interaction.user.id != OWNER_ID:
+            await interaction.response.send_message("❌ You are not allowed to use this command.", ephemeral=True)
+            return
+        
+        await interaction.response.send_message(f"🔤 Changing channel fonts to {style} style...", ephemeral=True)
+        guild = interaction.guild
+        progress_message = await interaction.followup.send("⏳ Creating backup of current channel names...", ephemeral=False)
+        
+        # Backup current channel names
+        await self.backup_font(guild)
+        
+        # Update progress
+        await progress_message.edit(content="⏳ Backup complete! Now applying font style...")
+        
+        # Apply the selected font style
+        if style.lower() == "normal":
+            await self.restore_font(guild, progress_message)
+        else:
+            await self.apply_font(guild, style.lower(), progress_message)
+        
+        # Send completion message
+        embed = discord.Embed(
+            title="✅ Font Style Applied!",
+            description=f"Channel names have been updated to the **{style.title()}** font style!",
+            color=0x00FF00
+        )
+        embed.add_field(name="Applied by", value=interaction.user.display_name, inline=True)
+        embed.add_field(name="To revert", value="Use `/font normal` command", inline=False)
+        embed.set_footer(text="Spectra Bot • Font Styling")
+        
+        await progress_message.edit(content="", embed=embed)
+    
     @app_commands.command(name="unmakeup", description="Revert your server to its original state")
     async def unmakeup(self, interaction: discord.Interaction):
         if interaction.user.id != OWNER_ID:
@@ -108,12 +188,21 @@ class Makeup(commands.Cog):
             
         await interaction.response.send_message("🔄 Reverting server to original state...", ephemeral=True)
         guild = interaction.guild
+        progress_message = await interaction.followup.send("⏳ Restoring original server structure...", ephemeral=False)
         
-        # Implement the revert logic here using self.backup data
-        # This would be complex but essentially would restore channel names and positions
+        # Restore the original server structure
+        await self.restore_server(guild, progress_message)
         
-        await interaction.followup.send("✅ Server has been restored to its original state!", ephemeral=False)
-        self.backup = {}  # Clear the backup after restoration
+        # Send completion message
+        embed = discord.Embed(
+            title="✅ Server Restoration Complete!",
+            description="Your server has been restored to its original state!",
+            color=0x00FF00
+        )
+        embed.add_field(name="Restored by", value=interaction.user.display_name, inline=True)
+        embed.set_footer(text="Spectra Bot • Server Restoration")
+        
+        await progress_message.edit(content="", embed=embed)
     
     async def backup_server(self, guild):
         """Create a backup of the current server structure"""
@@ -145,6 +234,74 @@ class Makeup(commands.Cog):
                 "user_limit": voice_channel.user_limit
             }
     
+    async def backup_font(self, guild):
+        """Create a backup of current channel names for font styling"""
+        self.font_backup = {
+            "categories": {},
+            "text_channels": {},
+            "voice_channels": {}
+        }
+        
+        for category in guild.categories:
+            self.font_backup["categories"][category.id] = category.name
+            
+        for channel in guild.text_channels:
+            self.font_backup["text_channels"][channel.id] = channel.name
+            
+        for voice_channel in guild.voice_channels:
+            self.font_backup["voice_channels"][voice_channel.id] = voice_channel.name
+    
+    async def restore_server(self, guild, progress_message):
+        """Restore the server to its original state"""
+        if not self.backup:
+            return
+        
+        # Step 1: Restore categories
+        await progress_message.edit(content="⏳ Restoring categories...")
+        for category_id, category_data in self.backup["categories"].items():
+            category = guild.get_channel(category_id)
+            if category:
+                try:
+                    await category.edit(name=category_data["name"], position=category_data["position"])
+                    await asyncio.sleep(0.5)  # Avoid rate limits
+                except discord.HTTPException:
+                    continue
+        
+        # Step 2: Restore text channels
+        await progress_message.edit(content="⏳ Restoring text channels...")
+        for channel_id, channel_data in self.backup["channels"].items():
+            channel = guild.get_channel(channel_id)
+            if channel:
+                try:
+                    await channel.edit(
+                        name=channel_data["name"],
+                        topic=channel_data["topic"],
+                        position=channel_data["position"],
+                        category=guild.get_channel(channel_data["category_id"])
+                    )
+                    await asyncio.sleep(0.5)  # Avoid rate limits
+                except discord.HTTPException:
+                    continue
+        
+        # Step 3: Restore voice channels
+        await progress_message.edit(content="⏳ Restoring voice channels...")
+        for vc_id, vc_data in self.backup["voice_channels"].items():
+            vc = guild.get_channel(vc_id)
+            if vc:
+                try:
+                    await vc.edit(
+                        name=vc_data["name"],
+                        position=vc_data["position"],
+                        category=guild.get_channel(vc_data["category_id"]),
+                        user_limit=vc_data["user_limit"]
+                    )
+                    await asyncio.sleep(0.5)  # Avoid rate limits
+                except discord.HTTPException:
+                    continue
+        
+        # Clear the backup after restoration
+        self.backup = {}
+    
     async def apply_theme(self, guild, theme_data, progress_message):
         """Apply the selected theme to the server"""
         # Step 1: Rename existing channels
@@ -162,6 +319,146 @@ class Makeup(commands.Cog):
         # Step 4: Create any missing essential channels
         await progress_message.edit(content="⏳ Adding essential channels...")
         await self.create_essential_channels(guild, created_categories, theme_data)
+    
+    async def apply_font(self, guild, font_style, progress_message):
+        """Apply the selected font style to channel names"""
+        if font_style not in FONTS:
+            return
+            
+        font_map = FONTS[font_style]
+        count = 0
+        total = len(guild.categories) + len(guild.text_channels) + len(guild.voice_channels)
+        
+        # Function to convert text to the selected font style
+        def convert_to_font(text):
+            # Preserve emojis and non-alphanumeric characters
+            emoji_pattern = re.compile(r'([\U00010000-\U0010ffff]|\ud83d[\udc00-\ude4f]|\ud83c[\udf00-\udfff]|[^\w\s-])')
+            parts = emoji_pattern.split(text)
+            
+            result = ""
+            for part in parts:
+                if emoji_pattern.match(part):
+                    # Keep emojis unchanged
+                    result += part
+                else:
+                    # Convert alphanumeric characters to the font style
+                    for char in part.lower():
+                        if char in font_map:
+                            result += font_map[char]
+                        else:
+                            result += char
+            return result
+        
+        # Step 1: Apply font to categories
+        for category in guild.categories:
+            try:
+                # Extract emojis and preserve them
+                match = re.match(r'^([\U00010000-\U0010ffff]|\ud83d[\udc00-\ude4f]|\ud83c[\udf00-\udfff]|[^\w\s-]+)\s(.+)$', category.name)
+                if match:
+                    emoji = match.group(1)
+                    name = match.group(2)
+                    new_name = f"{emoji} {convert_to_font(name)}"
+                else:
+                    new_name = convert_to_font(category.name)
+                
+                await category.edit(name=new_name)
+                await asyncio.sleep(0.5)  # Avoid rate limits
+                count += 1
+                if count % 5 == 0:
+                    await progress_message.edit(content=f"⏳ Applying font style... ({count}/{total})")
+            except discord.HTTPException:
+                continue
+        
+        # Step 2: Apply font to text channels
+        for channel in guild.text_channels:
+            try:
+                # Extract emojis and preserve them
+                match = re.match(r'^([\U00010000-\U0010ffff]|\ud83d[\udc00-\ude4f]|\ud83c[\udf00-\udfff]|[^\w\s-]+)-(.+)$', channel.name)
+                if match:
+                    emoji = match.group(1)
+                    name = match.group(2)
+                    new_name = f"{emoji}-{convert_to_font(name)}"
+                else:
+                    new_name = convert_to_font(channel.name)
+                
+                await channel.edit(name=new_name)
+                await asyncio.sleep(0.5)  # Avoid rate limits
+                count += 1
+                if count % 5 == 0:
+                    await progress_message.edit(content=f"⏳ Applying font style... ({count}/{total})")
+            except discord.HTTPException:
+                continue
+        
+        # Step 3: Apply font to voice channels
+        for vc in guild.voice_channels:
+            try:
+                # Extract emojis and preserve them
+                match = re.match(r'^([\U00010000-\U0010ffff]|\ud83d[\udc00-\ude4f]|\ud83c[\udf00-\udfff]|[^\w\s-]+)-(.+)$', vc.name)
+                if match:
+                    emoji = match.group(1)
+                    name = match.group(2)
+                    new_name = f"{emoji}-{convert_to_font(name)}"
+                else:
+                    new_name = convert_to_font(vc.name)
+                
+                await vc.edit(name=new_name)
+                await asyncio.sleep(0.5)  # Avoid rate limits
+                count += 1
+                if count % 5 == 0:
+                    await progress_message.edit(content=f"⏳ Applying font style... ({count}/{total})")
+            except discord.HTTPException:
+                continue
+    
+    async def restore_font(self, guild, progress_message):
+        """Restore channel names to normal font"""
+        if not self.font_backup:
+            await progress_message.edit(content="❌ No font backup found! Cannot restore original names.")
+            return
+        
+        count = 0
+        total = len(self.font_backup["categories"]) + len(self.font_backup["text_channels"]) + len(self.font_backup["voice_channels"])
+        
+        # Step 1: Restore category names
+        for category_id, name in self.font_backup["categories"].items():
+            category = guild.get_channel(category_id)
+            if category:
+                try:
+                    await category.edit(name=name)
+                    await asyncio.sleep(0.5)  # Avoid rate limits
+                    count += 1
+                    if count % 5 == 0:
+                        await progress_message.edit(content=f"⏳ Restoring original names... ({count}/{total})")
+                except discord.HTTPException:
+                    continue
+        
+        # Step 2: Restore text channel names
+        for channel_id, name in self.font_backup["text_channels"].items():
+            channel = guild.get_channel(channel_id)
+            if channel:
+                try:
+                    await channel.edit(name=name)
+                    await asyncio.sleep(0.5)  # Avoid rate limits
+                    count += 1
+                    if count % 5 == 0:
+                        await progress_message.edit(content=f"⏳ Restoring original names... ({count}/{total})")
+                except discord.HTTPException:
+                    continue
+        
+        # Step 3: Restore voice channel names
+        for vc_id, name in self.font_backup["voice_channels"].items():
+            vc = guild.get_channel(vc_id)
+            if vc:
+                try:
+                    await vc.edit(name=name)
+                    await asyncio.sleep(0.5)  # Avoid rate limits
+                    count += 1
+                    if count % 5 == 0:
+                        await progress_message.edit(content=f"⏳ Restoring original names... ({count}/{total})")
+                except discord.HTTPException:
+                    continue
+        
+        # Clear the font backup after restoration
+        self.font_backup = {}
     
     async def rename_channels(self, guild, theme_data):
         """Rename existing channels with theme prefixes"""
