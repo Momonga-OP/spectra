@@ -65,6 +65,12 @@ FONTS = {
         "u": "𝘂", "v": "𝘃", "w": "𝘄", "x": "𝘅", "y": "𝘆", "z": "𝘇", "0": "𝟬", "1": "𝟭", "2": "𝟮", "3": "𝟯",
         "4": "𝟰", "5": "𝟱", "6": "𝟲", "7": "𝟳", "8": "𝟴", "9": "𝟵", " ": " "
     },
+    "bold-italic": {
+        "a": "𝙖", "b": "𝙗", "c": "𝙘", "d": "𝙙", "e": "𝙚", "f": "𝙛", "g": "𝙜", "h": "𝙝", "i": "𝙞", "j": "𝙟",
+        "k": "𝙠", "l": "𝙡", "m": "𝙢", "n": "𝙣", "o": "𝙤", "p": "𝙥", "q": "𝙦", "r": "𝙧", "s": "𝙨", "t": "𝙩",
+        "u": "𝙪", "v": "𝙫", "w": "𝙬", "x": "𝙭", "y": "𝙮", "z": "𝙯", "0": "0", "1": "1", "2": "2", "3": "3",
+        "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", " ": " "
+    },
     "cursive": {
         "a": "𝓪", "b": "𝓫", "c": "𝓬", "d": "𝓭", "e": "𝓮", "f": "𝓯", "g": "𝓰", "h": "𝓱", "i": "𝓲", "j": "𝓳",
         "k": "𝓴", "l": "𝓵", "m": "𝓶", "n": "𝓷", "o": "𝓸", "p": "𝓹", "q": "𝓺", "r": "𝓻", "s": "𝓼", "t": "𝓽",
@@ -137,6 +143,7 @@ class Makeup(commands.Cog):
     @app_commands.choices(style=[
         app_commands.Choice(name="Aesthetic", value="aesthetic"),
         app_commands.Choice(name="Bold", value="bold"),
+        app_commands.Choice(name="Bold Italic", value="bold-italic"),
         app_commands.Choice(name="Cursive", value="cursive"),
         app_commands.Choice(name="Monospace", value="monospace"),
         app_commands.Choice(name="Small Caps", value="small-caps"),
