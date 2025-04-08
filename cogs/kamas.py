@@ -5,6 +5,9 @@ import asyncio
 import logging
 from datetime import datetime
 import os
+import uuid
+import aiohttp
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +15,94 @@ logger = logging.getLogger(__name__)
 PANEL_CHANNEL_ID = 1237390434041462836
 TICKET_CHANNEL_ID = 1247728738326679583
 SERVER_ID = 1217700740949348443
+
+# Kamas logo URL
+KAMAS_LOGO_URL = "https://static.wikia.nocookie.net/dofus/images/1/1e/Kama.png"
+
+class PrivateThreadButton(ui.View):
+    """Button to create a private thread for transactions."""
+    
+    def __init__(self, seller_id, buyer_id=None, transaction_type=None):
+        super().__init__(timeout=None)
+        self.seller_id = seller_id
+        self.buyer_id = buyer_id
+        self.transaction_type = transaction_type
+        self.thread_id = None
+    
+    @discord.ui.button(label="Start Private Discussion", style=discord.ButtonStyle.primary, emoji="🔒", custom_id="private_thread")
+    async def create_thread(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            # Only allow the admin, seller or buyer to create/access the thread
+            if not (interaction.user.guild_permissions.administrator or 
+                   interaction.user.id == self.seller_id or 
+                   (self.buyer_id and interaction.user.id == self.buyer_id)):
+                await interaction.response.send_message(
+                    "You don't have permission to access this transaction thread.", 
+                    ephemeral=True
+                )
+                return
+            
+            # If thread already exists, direct to it
+            if self.thread_id:
+                try:
+                    thread = await interaction.guild.fetch_channel(self.thread_id)
+                    await interaction.response.send_message(
+                        f"Thread already exists. [Click here to join](<https://discord.com/channels/{interaction.guild.id}/{self.thread_id}>)",
+                        ephemeral=True
+                    )
+                    return
+                except discord.NotFound:
+                    # Thread was deleted, create a new one
+                    self.thread_id = None
+            
+            # Create a unique thread name
+            unique_id = str(uuid.uuid4())[:8]
+            thread_name = f"Transaction-{unique_id}"
+            
+            # Create a private thread from the message
+            thread = await interaction.channel.create_thread(
+                name=thread_name,
+                message=interaction.message,
+                type=discord.ChannelType.private_thread
+            )
+            
+            # Store the thread ID
+            self.thread_id = thread.id
+            
+            # Add the seller and buyer to the thread
+            seller = await interaction.client.fetch_user(self.seller_id)
+            await thread.add_user(seller)
+            
+            if self.buyer_id:
+                buyer = await interaction.client.fetch_user(self.buyer_id)
+                await thread.add_user(buyer)
+            
+            # Acknowledge the interaction
+            await interaction.response.send_message(
+                f"Private thread created! [Click here to join](<https://discord.com/channels/{interaction.guild.id}/{thread.id}>)",
+                ephemeral=True
+            )
+            
+            # Send initial message in thread
+            transaction_text = "listing" if not self.transaction_type else self.transaction_type.lower()
+            await thread.send(
+                f"### Secure Transaction Thread\n\n"
+                f"This is a private thread for discussing the kamas {transaction_text}.\n"
+                f"Only the involved parties and administrators can see this thread.\n\n"
+                f"**Guidelines:**\n"
+                f"• Be respectful and clear in your communication\n"
+                f"• Discuss and agree on the transaction details\n"
+                f"• Once agreed, an administrator can help secure the transaction\n\n"
+                f"*Wall Street is facilitating this meeting but not directly involved in buying or selling We just Pimpers .*"
+            )
+            
+        except Exception as e:
+            logger.exception(f"Error creating private thread: {e}")
+            await interaction.response.send_message(
+                "There was an error creating the private thread. Please try again later.",
+                ephemeral=True
+            )
+
 
 class KamasModal(ui.Modal, title="Kamas Transaction Details"):
     """Modal form that appears when a user clicks Buy or Sell."""
@@ -33,6 +124,13 @@ class KamasModal(ui.Modal, title="Kamas Transaction Details"):
     payment_method = ui.TextInput(
         label="Payment Method",
         placeholder="Enter your preferred payment method",
+        required=True,
+        max_length=100
+    )
+    
+    contact_info = ui.TextInput(
+        label="Contact Information",
+        placeholder="Discord tag or preferred contact method",
         required=True,
         max_length=100
     )
@@ -63,8 +161,8 @@ class KamasModal(ui.Modal, title="Kamas Transaction Details"):
             
             # Create an embed for the ticket
             embed = discord.Embed(
-                title=f"Kamas {self.transaction_type} Request - {interaction.user.name}",
-                description=f"Transaction type: **{self.transaction_type}**",
+                title=f"Wall Street - Kamas {self.transaction_type}",
+                description=f"A new kamas {self.transaction_type.lower()} listing has been created.",
                 color=discord.Color.gold() if self.transaction_type == "SELL" else discord.Color.blue()
             )
             
@@ -75,28 +173,37 @@ class KamasModal(ui.Modal, title="Kamas Transaction Details"):
             if self.additional_info.value:
                 embed.add_field(name="Additional Information", value=self.additional_info.value, inline=False)
                 
-            embed.add_field(name="Reference", value=f"`{ticket_ref}`", inline=False)
-            embed.add_field(name="User ID", value=f"{interaction.user.id}", inline=False)
-            embed.set_footer(text=f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            embed.add_field(name="Reference ID", value=f"`{ticket_ref}`", inline=False)
+            embed.set_footer(text=f"Listed on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Try to download and use the Kamas logo as the thumbnail
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(KAMAS_LOGO_URL) as resp:
+                        if resp.status == 200:
+                            data = await resp.read()
+                            embed.set_thumbnail(url=KAMAS_LOGO_URL)
+            except Exception as e:
+                logger.warning(f"Could not set Kamas logo: {e}")
+            
+            # Create the view with the private discussion button
+            view = PrivateThreadButton(seller_id=user_id, transaction_type=self.transaction_type)
             
             # Send the ticket to the ticket channel
-            await ticket_channel.send(
-                content=f"New kamas {self.transaction_type.lower()} request from {interaction.user.mention}",
-                embed=embed
-            )
+            await ticket_channel.send(embed=embed, view=view)
             
             # Confirm to the user
             await interaction.response.send_message(
-                f"Your {self.transaction_type.lower()} request has been submitted! A representative will contact you soon.",
+                f"Your {self.transaction_type.lower()} listing has been created! Check the transactions channel for inquiries.",
                 ephemeral=True
             )
             
-            logger.info(f"Created kamas {self.transaction_type.lower()} ticket for user {interaction.user.id}")
+            logger.info(f"Created kamas {self.transaction_type.lower()} listing for user {interaction.user.id}")
             
         except Exception as e:
-            logger.exception(f"Error creating kamas ticket: {e}")
+            logger.exception(f"Error creating kamas listing: {e}")
             await interaction.response.send_message(
-                "There was an error processing your request. Please try again later.",
+                "There was an error creating your listing. Please try again later.",
                 ephemeral=True
             )
 
@@ -156,37 +263,54 @@ class KamasCog(commands.Cog):
                 except Exception as e:
                     logger.exception(f"Error fetching kamas panel message: {e}")
             
+            # Download the Kamas logo for embedding
+            kamas_logo = None
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(KAMAS_LOGO_URL) as resp:
+                        if resp.status == 200:
+                            kamas_logo = KAMAS_LOGO_URL
+            except Exception as e:
+                logger.warning(f"Failed to get Kamas logo: {e}")
+            
             # Create embed for the panel
             embed = discord.Embed(
-                title="💎 Kamas Trading Service 💎",
+                title="💎 Wall Street - Kamas Trading 💎",
                 description=(
-                    "**Secure & Fast Kamas Trading Service!**\n\n"
-                    "Looking to buy or sell kamas safely and at the best price? "
-                    "Our team of professionals is here to ensure a fast and reliable transaction.\n\n"
+                    "**Secure & Reliable Kamas Trading Platform**\n\n"
+                    "Looking to buy or sell kamas safely? Wall Street facilitates secure meetings "
+                    "between buyers and sellers.\n\n"
                     "Sparta is not supporting this action but it's done anyway so we are just securing it "
                     "- it's like giving a clean needle to junkies.\n\n"
                     "**Please provide the following information:**\n"
                     "• Amount of kamas you're buying/selling\n"
                     "• Your price\n"
-                    "• Your preferred payment method"
+                    "• Your preferred payment method\n"
+                    "• Contact information"
                 ),
                 color=discord.Color.gold()
             )
             
-            embed.add_field(name="📈 Attractive Rates & Immediate Payment", value="\u200b", inline=False)
-            embed.add_field(name="🔒 Secure & Guaranteed Service", value="\u200b", inline=False)
-            embed.add_field(name="👥 Certified Members at Your Service", value="\u200b", inline=False)
+            # Set the Kamas logo as thumbnail if available
+            if kamas_logo:
+                embed.set_thumbnail(url=kamas_logo)
+            
+            embed.add_field(name="📈 Attractive Rates & Safe Transactions", value="\u200b", inline=False)
+            embed.add_field(name="🔒 Secure & Private Communications", value="\u200b", inline=False)
+            embed.add_field(name="👥 Trusted Intermediary Service", value="\u200b", inline=False)
             
             embed.add_field(
                 name="How It Works",
                 value=(
-                    "Click one of the buttons below and fill out the form. "
-                    "One of our certified agents will assist you with your transaction shortly."
+                    "1. Click one of the buttons below and fill out the form\n"
+                    "2. A listing will be created in our transactions channel\n"
+                    "3. Interested parties can use the private discussion button\n"
+                    "4. Complete your transaction safely through our secure system (Maybe)"
                 ),
                 inline=False
             )
             
-            embed.set_footer(text="All transactions are secured and guaranteed by our server.")
+            embed.set_footer(text="Wall Street - Making transactions secure since Today we are just Testing this Idea")
             
             # Update existing message or create new one
             view = KamasView()
@@ -205,7 +329,7 @@ class KamasCog(commands.Cog):
         except Exception as e:
             logger.exception(f"Error setting up kamas panel: {e}")
     
-    @app_commands.command(name="kamas_reset_panel", description="Reset the kamas trading panel")
+    @app_commands.command(name="wallstreet_reset", description="Reset the Wall Street kamas trading panel")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_panel(self, interaction: discord.Interaction):
         """Admin command to reset the kamas trading panel."""
@@ -214,13 +338,65 @@ class KamasCog(commands.Cog):
                 os.remove("kamas_panel_id.txt")
             
             await self.setup_panel()
-            await interaction.response.send_message("Kamas trading panel has been reset!", ephemeral=True)
+            await interaction.response.send_message("Wall Street trading panel has been reset!", ephemeral=True)
         except Exception as e:
-            logger.exception(f"Error resetting kamas panel: {e}")
-            await interaction.response.send_message("Failed to reset the kamas panel.", ephemeral=True)
+            logger.exception(f"Error resetting Wall Street panel: {e}")
+            await interaction.response.send_message("Failed to reset the Wall Street panel.", ephemeral=True)
+    
+    @app_commands.command(name="wallstreet_connect", description="Connect a buyer to a seller's listing")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def connect_users(self, interaction: discord.Interaction, listing_message_id: str, user: discord.Member):
+        """Admin command to connect a buyer to a seller's listing."""
+        try:
+            # Get the message from the ticket channel
+            ticket_channel = interaction.client.get_channel(TICKET_CHANNEL_ID)
+            if not ticket_channel:
+                ticket_channel = await interaction.client.fetch_channel(TICKET_CHANNEL_ID)
+            
+            message = await ticket_channel.fetch_message(int(listing_message_id))
+            
+            # Check if the message has a PrivateThreadButton view
+            if not message.components:
+                await interaction.response.send_message("This message doesn't have a transaction button.", ephemeral=True)
+                return
+            
+            # Extract the seller ID from the Reference ID field in the embed
+            seller_id = None
+            if message.embeds and message.embeds[0].fields:
+                for field in message.embeds[0].fields:
+                    if field.name == "Reference ID":
+                        # Format is usually TRANSACTION_TYPE-USER_ID-TIMESTAMP
+                        try:
+                            ref_parts = field.value.strip('`').split('-')
+                            if len(ref_parts) >= 2:
+                                seller_id = int(ref_parts[1])
+                        except:
+                            pass
+            
+            if not seller_id:
+                await interaction.response.send_message("Could not identify the seller from this listing.", ephemeral=True)
+                return
+            
+            # Create a new view with both seller and buyer IDs
+            new_view = PrivateThreadButton(seller_id=seller_id, buyer_id=user.id, 
+                                          transaction_type=message.embeds[0].title.split(' - Kamas ')[1] if message.embeds else None)
+            
+            # Update the message with the new view
+            await message.edit(view=new_view)
+            
+            await interaction.response.send_message(
+                f"Connected {user.mention} to the listing. They can now access the private thread.",
+                ephemeral=True
+            )
+            
+        except discord.NotFound:
+            await interaction.response.send_message("Message not found. Check the ID and try again.", ephemeral=True)
+        except Exception as e:
+            logger.exception(f"Error connecting users: {e}")
+            await interaction.response.send_message("There was an error connecting the users.", ephemeral=True)
 
 
 async def setup(bot):
     """Setup function to add the cog to the bot."""
     await bot.add_cog(KamasCog(bot), guilds=[discord.Object(id=SERVER_ID)])
-    logger.info("Kamas trading module has been loaded")
+    logger.info("Wall Street kamas trading module has been loaded")
