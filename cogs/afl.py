@@ -10,7 +10,7 @@ class AFLPanel(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.panel_message: Optional[discord.Message] = None
-        self.PANEL_CHANNEL_ID = 1247977324293652530
+        self.PANEL_CHANNEL_ID = 1247728759780413480
         
         # In-memory data for the panel
         self.attack_teams = {
@@ -130,7 +130,7 @@ class AFLPanel(commands.Cog):
             # Progress bar function
             def progress_bar(value, max_value=100, length=10):
                 filled = int((value / max_value) * length)
-                return '▰' * filled + '▱' * (length - filled)
+                return '>' * filled + '-' * (length - filled)
             
             # Calculate time remaining for cooldown
             cooldown_status = "🟢 Ready"
@@ -144,11 +144,11 @@ class AFLPanel(commands.Cog):
 
             embed.description = (
                 "```ansi\n"
-                "[2;31m╔═══════════════════════════════════════╗[0m\n"
-                "[2;31m║[0m [2;34mPERCEPTOR ATTACK SYSTEM[0m               [2;31m║[0m\n"
-                "[2;31m║[0m [2;37mVersion[0m: 2.0.0                        [2;31m║[0m\n"
-                "[2;31m║[0m [2;32mStatus[0m: [2;32mOPERATIONAL[0m                    [2;31m║[0m\n"
-                "[2;31m╚═══════════════════════════════════════╝[0m\n```\n"
+                "[2;31m+=======================================+[0m\n"
+                "[2;31m|[0m [2;34mPERCEPTOR ATTACK SYSTEM[0m               [2;31m|[0m\n"
+                "[2;31m|[0m [2;37mVersion[0m: 2.0.0                        [2;31m|[0m\n"
+                "[2;31m|[0m [2;32mStatus[0m: [2;32mOPERATIONAL[0m                    [2;31m|[0m\n"
+                "[2;31m+=======================================+[0m\n```\n"
                 
                 "**📡 System Overview:**\n"
                 "• Real-time perceptor monitoring active\n"
@@ -163,9 +163,9 @@ class AFLPanel(commands.Cog):
                 name="📌 Attack Team",
                 value=(
                     "```ml\n"
-                    f"◉ Available: {self.attack_teams['available']} members\n"
-                    f"◉ Efficiency: {efficiency_bar} {self.attack_teams['efficiency']}%\n"
-                    f"◉ Cooldown: {cooldown_status}\n```"
+                    f"* Available: {self.attack_teams['available']} members\n"
+                    f"* Efficiency: {efficiency_bar} {self.attack_teams['efficiency']}%\n"
+                    f"* Cooldown: {cooldown_status}\n```"
                 ),
                 inline=True
             )
@@ -173,19 +173,19 @@ class AFLPanel(commands.Cog):
             # Target information
             priority_colors = {"HIGH": "🔴", "MEDIUM": "🟠", "LOW": "🟡"}
             target_display = "\n".join([
-                f"◉ {priority_colors[t['priority']]} {t['name']} {t['coordinates']}"
+                f"* {priority_colors[t['priority']]} {t['name']} {t['coordinates']}"
                 for t in self.targets["details"][:3]
             ])
             
             if not target_display:
-                target_display = "◉ No active targets"
+                target_display = "* No active targets"
                 
             embed.add_field(
                 name="📌 Priority Targets",
                 value=(
                     "```ml\n"
                     f"{target_display}\n"
-                    f"◉ Total targets: {self.targets['count']}\n```"
+                    f"* Total targets: {self.targets['count']}\n```"
                 ),
                 inline=True
             )
@@ -198,9 +198,9 @@ class AFLPanel(commands.Cog):
                 name="📌 Operation Stats",
                 value=(
                     "```ml\n"
-                    f"◉ Success rate: {success_bar} {success_rate}%\n"
-                    f"◉ Complete: {self.stats['success']}/{self.stats['total']}\n"
-                    f"◉ Active: {self.stats['in_progress']}\n```"
+                    f"* Success rate: {success_bar} {success_rate}%\n"
+                    f"* Complete: {self.stats['success']}/{self.stats['total']}\n"
+                    f"* Active: {self.stats['in_progress']}\n```"
                 ),
                 inline=True
             )
@@ -211,11 +211,11 @@ class AFLPanel(commands.Cog):
                 value=(
                     "```\n"
                     "      N       \n"
-                    "      ↑       \n"
-                    "  ┌───┼───┐   \n"
-                    "W ←   •   → E \n"
-                    "  └───┼───┘   \n"
-                    "      ↓       \n"
+                    "      ^       \n"
+                    "  +---+---+   \n"
+                    "W <   *   > E \n"
+                    "  +---+---+   \n"
+                    "      v       \n"
                     "      S       \n"
                     "```"
                 ),
@@ -239,11 +239,11 @@ class AFLPanel(commands.Cog):
             # Non-admin view
             embed.description = (
                 "```ansi\n"
-                "[2;31m╔═══════════════════════════════════════╗[0m\n"
-                "[2;31m║[0m [2;34mAFL ATTACK SYSTEM[0m                     [2;31m║[0m\n"
-                "[2;31m║[0m [2;37mSECURITY LEVEL[0m: [2;31mRED[0m                  [2;31m║[0m\n"
-                "[2;31m║[0m [2;31mACCESS DENIED - ADMIN PRIVILEGES REQUIRED[0m [2;31m║[0m\n"
-                "[2;31m╚═══════════════════════════════════════╝[0m\n```\n"
+                "[2;31m+=======================================+[0m\n"
+                "[2;31m|[0m [2;34mAFL ATTACK SYSTEM[0m                     [2;31m|[0m\n"
+                "[2;31m|[0m [2;37mSECURITY LEVEL[0m: [2;31mRED[0m                  [2;31m|[0m\n"
+                "[2;31m|[0m [2;31mACCESS DENIED - ADMIN PRIVILEGES REQUIRED[0m [2;31m|[0m\n"
+                "[2;31m+=======================================+[0m\n```\n"
                 
                 "**⚠️ RESTRICTED ACCESS ⚠️**\n\n"
                 "This terminal requires elevated permissions.\n"
@@ -254,8 +254,8 @@ class AFLPanel(commands.Cog):
             # Add encrypted fields
             for i in range(3):
                 embed.add_field(
-                    name=f"📌 {"▓" * random.randint(5, 10)}",
-                    value="```\n" + "\n".join(["█" * random.randint(10, 20) for _ in range(3)]) + "\n```",
+                    name=f"📌 {'#' * random.randint(5, 10)}",
+                    value="```\n" + "\n".join(["=" * random.randint(10, 20) for _ in range(3)]) + "\n```",
                     inline=True
                 )
 
