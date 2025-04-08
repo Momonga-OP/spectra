@@ -131,7 +131,7 @@ EXTENSIONS = [
     'cogs.relocate', 'cogs.watermark', 'cogs.serverstats', 'cogs.talk', 'cogs.write', 'cogs.alerts', 'cogs.makeup',
     'cogs.watermark_user', 'cogs.attack', 'cogs.role', 'cogs.metiers', 'cogs.percopos',
     'cogs.youtube_mp3', 'cogs.image_converter', 'cogs.clear', 'cogs.percoattack', 'cogs.sure', 'cogs.music',
-    'cogs.rbg', 'cogs.bow', 'cogs.welcomesparta', 'cogs.contract', 'cogs.profession', 'cogs.afl', 'cogs.voicemaster',
+    'cogs.rbg', 'cogs.bow', 'cogs.welcomesparta', 'cogs.contract', 'cogs.profession', 'cogs.afl', 'cogs.voicechannel',
     'cogs.super', 'cogs.translator', 'cogs.spotify', 'cogs.voice', 'cogs.youtubemp4', 'cogs.ecologia', 'cogs.invite', 'cogs.translation_voice',
 ]
 
