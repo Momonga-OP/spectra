@@ -12,9 +12,9 @@ from io import BytesIO
 logger = logging.getLogger(__name__)
 
 # Constants for channel IDs
-PANEL_CHANNEL_ID = 1237390434041462836
-TICKET_CHANNEL_ID = 1247728738326679583
-SERVER_ID = 1217700740949348443
+PANEL_CHANNEL_ID = 1359303967766741073
+TICKET_CHANNEL_ID = 1359304110557364447
+SERVER_ID = 1214430768143671377
 
 # Kamas logo URL
 KAMAS_LOGO_URL = "https://static.wikia.nocookie.net/dofus/images/1/1e/Kama.png"
@@ -275,7 +275,7 @@ class KamasCog(commands.Cog):
             
             # Create embed for the panel
             embed = discord.Embed(
-                title="💎 Wall Street - Kamas Trading 💎",
+                title=" Wall Street - Kamas Trading ",
                 description=(
                     "**Secure & Reliable Kamas Trading Platform**\n\n"
                     "Looking to buy or sell kamas safely? Wall Street facilitates secure meetings "
