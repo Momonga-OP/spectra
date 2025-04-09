@@ -23,14 +23,18 @@ class PrivateThreadButton(ui.View):
     """Button to create a private thread for transactions."""
     
     def __init__(self, seller_id, buyer_id=None, transaction_type=None):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # No timeout for persistent view
         self.seller_id = seller_id
         self.buyer_id = buyer_id
         self.transaction_type = transaction_type
-        self.thread_id = None
+        
+        # Store thread_id as a class attribute instead of instance
+        # This ensures it persists across bot restarts
+        self.custom_id = f"private_thread_{seller_id}_{buyer_id if buyer_id else '0'}"
+        self.create_thread_button.custom_id = self.custom_id
     
     @discord.ui.button(label="Start Private Discussion", style=discord.ButtonStyle.primary, emoji="🔒", custom_id="private_thread")
-    async def create_thread(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def create_thread_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             # Only allow the admin, seller or buyer to create/access the thread
             if not (interaction.user.guild_permissions.administrator or 
@@ -42,40 +46,57 @@ class PrivateThreadButton(ui.View):
                 )
                 return
             
-            # If thread already exists, direct to it
-            if self.thread_id:
+            # Check if thread already exists by looking for thread in channel attributes
+            existing_thread_id = None
+            thread_file_path = f"thread_{self.custom_id}.txt"
+            
+            if os.path.exists(thread_file_path):
                 try:
-                    thread = await interaction.guild.fetch_channel(self.thread_id)
-                    await interaction.response.send_message(
-                        f"Thread already exists. [Click here to join](<https://discord.com/channels/{interaction.guild.id}/{self.thread_id}>)",
-                        ephemeral=True
-                    )
-                    return
-                except discord.NotFound:
-                    # Thread was deleted, create a new one
-                    self.thread_id = None
+                    with open(thread_file_path, "r") as f:
+                        existing_thread_id = int(f.read().strip())
+                        
+                    # Try to fetch the thread
+                    try:
+                        thread = await interaction.guild.fetch_channel(existing_thread_id)
+                        await interaction.response.send_message(
+                            f"Thread already exists. [Click here to join](<https://discord.com/channels/{interaction.guild.id}/{existing_thread_id}>)",
+                            ephemeral=True
+                        )
+                        return
+                    except discord.NotFound:
+                        # Thread was deleted, create a new one
+                        existing_thread_id = None
+                        os.remove(thread_file_path)
+                except:
+                    # Handle file read issues
+                    existing_thread_id = None
             
             # Create a unique thread name
             unique_id = str(uuid.uuid4())[:8]
             thread_name = f"Transaction-{unique_id}"
             
-            # Create a private thread from the message
+            # Create a private thread from the message with proper permissions
             thread = await interaction.channel.create_thread(
                 name=thread_name,
                 message=interaction.message,
-                type=discord.ChannelType.private_thread
+                type=discord.ChannelType.private_thread,
+                auto_archive_duration=10080  # 7 days, maximum duration
             )
             
-            # Store the thread ID
-            self.thread_id = thread.id
+            # Store the thread ID in a file for persistence across restarts
+            with open(thread_file_path, "w") as f:
+                f.write(str(thread.id))
             
             # Add the seller and buyer to the thread
-            seller = await interaction.client.fetch_user(self.seller_id)
-            await thread.add_user(seller)
-            
-            if self.buyer_id:
-                buyer = await interaction.client.fetch_user(self.buyer_id)
-                await thread.add_user(buyer)
+            try:
+                seller = await interaction.client.fetch_user(self.seller_id)
+                await thread.add_user(seller)
+                
+                if self.buyer_id:
+                    buyer = await interaction.client.fetch_user(self.buyer_id)
+                    await thread.add_user(buyer)
+            except Exception as e:
+                logger.error(f"Error adding users to thread: {e}")
             
             # Acknowledge the interaction
             await interaction.response.send_message(
@@ -93,7 +114,7 @@ class PrivateThreadButton(ui.View):
                 f"• Be respectful and clear in your communication\n"
                 f"• Discuss and agree on the transaction details\n"
                 f"• Once agreed, an administrator can help secure the transaction\n\n"
-                f"*Wall Street is facilitating this meeting but not directly involved in buying or selling We just Pimpers .*"
+                f"*Wall Street is facilitating this meeting but not directly involved in buying or selling. We just Pimpers.*"
             )
             
         except Exception as e:
@@ -190,7 +211,11 @@ class KamasModal(ui.Modal, title="Kamas Transaction Details"):
             view = PrivateThreadButton(seller_id=user_id, transaction_type=self.transaction_type)
             
             # Send the ticket to the ticket channel
-            await ticket_channel.send(embed=embed, view=view)
+            message = await ticket_channel.send(embed=embed, view=view)
+            
+            # Store the message ID with its view ID for persistence
+            with open(f"listing_{ticket_ref}.txt", "w") as f:
+                f.write(str(message.id))
             
             # Confirm to the user
             await interaction.response.send_message(
@@ -231,7 +256,65 @@ class KamasCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.panel_message = None
+        # Load all active transaction views on startup
         self.bot.loop.create_task(self.setup_panel())
+        self.bot.loop.create_task(self.restore_active_views())
+    
+    async def restore_active_views(self):
+        """Restore all active views from previous sessions."""
+        await self.bot.wait_until_ready()
+        
+        try:
+            # Get the ticket channel
+            ticket_channel = self.bot.get_channel(TICKET_CHANNEL_ID)
+            if not ticket_channel:
+                ticket_channel = await self.bot.fetch_channel(TICKET_CHANNEL_ID)
+                
+            # Find all listing files
+            listing_files = [f for f in os.listdir() if f.startswith("listing_")]
+            
+            for file in listing_files:
+                try:
+                    with open(file, "r") as f:
+                        message_id = int(f.read().strip())
+                    
+                    # Extract info from filename (format: listing_TYPE-USERID-TIMESTAMP.txt)
+                    parts = file.replace("listing_", "").replace(".txt", "").split("-")
+                    transaction_type = parts[0]
+                    seller_id = int(parts[1])
+                    
+                    # Try to fetch the message
+                    try:
+                        message = await ticket_channel.fetch_message(message_id)
+                        
+                        # Check if there's a buyer ID in thread files
+                        thread_files = [tf for tf in os.listdir() if tf.startswith(f"thread_private_thread_{seller_id}_")]
+                        buyer_id = None
+                        
+                        if thread_files and not thread_files[0].endswith("_0.txt"):
+                            buyer_part = thread_files[0].split("_")[-1].replace(".txt", "")
+                            if buyer_part != "0":
+                                buyer_id = int(buyer_part)
+                        
+                        # Recreate the view
+                        view = PrivateThreadButton(seller_id=seller_id, buyer_id=buyer_id, transaction_type=transaction_type)
+                        await message.edit(view=view)
+                        
+                        logger.info(f"Restored view for listing {file}")
+                    except discord.NotFound:
+                        # Message was deleted, clean up the file
+                        os.remove(file)
+                        logger.info(f"Removed stale listing file {file}")
+                    except Exception as e:
+                        logger.error(f"Error restoring view for {file}: {e}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing listing file {file}: {e}")
+            
+            logger.info("Completed restoration of active views")
+            
+        except Exception as e:
+            logger.exception(f"Error in restore_active_views: {e}")
     
     async def setup_panel(self):
         """Set up the kamas trading panel on bot startup."""
@@ -243,10 +326,11 @@ class KamasCog(commands.Cog):
             if not panel_channel:
                 panel_channel = await self.bot.fetch_channel(PANEL_CHANNEL_ID)
             
-            # Check if we already have a panel message stored in a file
+            # IMPORTANT: Check if we already have a panel message stored in a file
             panel_message_id = None
-            if os.path.exists("kamas_panel_id.txt"):
-                with open("kamas_panel_id.txt", "r") as f:
+            panel_file_path = "kamas_panel_id.txt"
+            if os.path.exists(panel_file_path):
+                with open(panel_file_path, "r") as f:
                     try:
                         panel_message_id = int(f.read().strip())
                     except (ValueError, IOError):
@@ -314,14 +398,18 @@ class KamasCog(commands.Cog):
             
             # Update existing message or create new one
             view = KamasView()
+            
             if existing_message:
-                await existing_message.edit(content=None, embed=embed, view=view)
+                # Only update the existing message with new view for button persistence
+                await existing_message.edit(view=view)
                 self.panel_message = existing_message
+                logger.info(f"Updated existing kamas panel message: {existing_message.id}")
             else:
+                # Create new panel only if no existing one was found
                 self.panel_message = await panel_channel.send(embed=embed, view=view)
                 
                 # Save the message ID for future reference
-                with open("kamas_panel_id.txt", "w") as f:
+                with open(panel_file_path, "w") as f:
                     f.write(str(self.panel_message.id))
                 
                 logger.info(f"Created new kamas panel message: {self.panel_message.id}")
@@ -334,8 +422,9 @@ class KamasCog(commands.Cog):
     async def reset_panel(self, interaction: discord.Interaction):
         """Admin command to reset the kamas trading panel."""
         try:
-            if os.path.exists("kamas_panel_id.txt"):
-                os.remove("kamas_panel_id.txt")
+            panel_file_path = "kamas_panel_id.txt"
+            if os.path.exists(panel_file_path):
+                os.remove(panel_file_path)
             
             await self.setup_panel()
             await interaction.response.send_message("Wall Street trading panel has been reset!", ephemeral=True)
@@ -362,12 +451,23 @@ class KamasCog(commands.Cog):
             
             # Extract the seller ID from the Reference ID field in the embed
             seller_id = None
+            transaction_type = None
+            ref_value = None
+            
             if message.embeds and message.embeds[0].fields:
+                # Get transaction type from title
+                if message.embeds[0].title:
+                    title_parts = message.embeds[0].title.split(' - Kamas ')
+                    if len(title_parts) > 1:
+                        transaction_type = title_parts[1]
+                
+                # Get seller ID from reference field
                 for field in message.embeds[0].fields:
                     if field.name == "Reference ID":
+                        ref_value = field.value.strip('`')
                         # Format is usually TRANSACTION_TYPE-USER_ID-TIMESTAMP
                         try:
-                            ref_parts = field.value.strip('`').split('-')
+                            ref_parts = ref_value.split('-')
                             if len(ref_parts) >= 2:
                                 seller_id = int(ref_parts[1])
                         except:
@@ -378,11 +478,17 @@ class KamasCog(commands.Cog):
                 return
             
             # Create a new view with both seller and buyer IDs
-            new_view = PrivateThreadButton(seller_id=seller_id, buyer_id=user.id, 
-                                          transaction_type=message.embeds[0].title.split(' - Kamas ')[1] if message.embeds else None)
+            new_view = PrivateThreadButton(seller_id=seller_id, buyer_id=user.id, transaction_type=transaction_type)
             
             # Update the message with the new view
             await message.edit(view=new_view)
+            
+            # Update file to include buyer info if ref_value is available
+            if ref_value:
+                # Ensure old thread file is removed if it exists
+                old_thread_path = f"thread_private_thread_{seller_id}_0.txt"
+                if os.path.exists(old_thread_path):
+                    os.remove(old_thread_path)
             
             await interaction.response.send_message(
                 f"Connected {user.mention} to the listing. They can now access the private thread.",
@@ -398,5 +504,9 @@ class KamasCog(commands.Cog):
 
 async def setup(bot):
     """Setup function to add the cog to the bot."""
+    # Add persistent views support
+    bot.add_view(KamasView())  # Add the main panel view for persistence
+    
+    # Register the cog
     await bot.add_cog(KamasCog(bot), guilds=[discord.Object(id=SERVER_ID)])
     logger.info("Wall Street kamas trading module has been loaded")
