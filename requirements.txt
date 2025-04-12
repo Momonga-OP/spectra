@@ -21,3 +21,4 @@ python-Levenshtein
 onnxruntime
 asyncpg
 pyttsx3
+pyfiglet
