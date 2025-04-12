@@ -3,6 +3,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import asyncio
+import pyfiglet
 
 class Congrats(commands.Cog):
     def __init__(self, bot):
@@ -16,6 +17,14 @@ class Congrats(commands.Cog):
         # Defer the response since we'll be adding animations
         await interaction.response.defer()
         
+        # Generate ASCII art for CONGRATS
+        congrats_ascii = pyfiglet.figlet_format("CONGRATS")
+        
+        # Generate ASCII art for the user's name
+        # Get the user's display name without any special characters that might break ASCII art
+        clean_name = ''.join(char for char in user.display_name if char.isalnum() or char.isspace())
+        user_ascii = pyfiglet.figlet_format(clean_name)
+        
         # Create a simple, impactful message
         congrats_message = f"""
 {user.mention} has reached **LEVEL 200**!
@@ -25,17 +34,14 @@ class Congrats(commands.Cog):
  Your journey has just begun 
 
 ```
-   _____                             _       _ 
-  / ____|                           | |     | |
- | |     ___  _ __   __ _ _ __ __ _| |_ ___| |
- | |    / _ \| '_ \ / _` | '__/ _` | __/ __| |
- | |___| (_) | | | | (_| | | | (_| | |_\__ \_|
-  \_____\___/|_| |_|\__, |_|  \__,_|\__|___(_)
-                     __/ |                    
-                    |___/                     
+{congrats_ascii}
 ```
 
-*"Welcome to the Elite Where 99% of the Server Population Are ."*
+```
+{user_ascii}
+```
+
+*"Welcome to the Elite Where 99% of the Server Population Are."*
 
 """
         
