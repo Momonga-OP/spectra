@@ -22,7 +22,7 @@ class Congrats(commands.Cog):
 
 ✧･ﾟ: ✧･ﾟ:  **NOW TRULY A SPARTAN MEMBER**  :･ﾟ✧:･ﾟ✧
 
-⚔️ Your journey has just begun, warrior! ⚔️
+ Your journey has just begun 
 
 ```
    _____                             _       _ 
@@ -35,9 +35,8 @@ class Congrats(commands.Cog):
                     |___/                     
 ```
 
-*"At the gates of glory, only the strongest survive. Level 200 is where legends begin their true path."*
+*"Welcome to the Elite Where 99% of the Server Population Are ."*
 
-💥 WELCOME TO THE ELITE RANKS! 💥
 """
         
         # Prepare the first animation frame
@@ -60,7 +59,7 @@ class Congrats(commands.Cog):
         
         # Create the final announcement with @everyone tag
         final_message = await interaction.followup.send(
-            content=f"@everyone! 🎉 **ATTENTION SPARTANS!** 🎉\n\n{congrats_message}",
+            content=f"@everyone!  **ATTENTION SPARTANS!** \n\n{congrats_message}",
             allowed_mentions=discord.AllowedMentions(everyone=True)
         )
         
