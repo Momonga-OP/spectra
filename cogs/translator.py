@@ -8,9 +8,9 @@ import asyncio
 class TranslatorCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-        # Initialize the translator and confirm it's functional
         self.translator = Translator()
+        
+        # Initialize with test translation
         try:
             test_translation = self.translator.translate("Hello", dest="es")
             print(f"Translator initialized successfully. Test translation: 'Hello' -> '{test_translation.text}'")
@@ -60,11 +60,7 @@ class TranslatorCog(commands.Cog):
         
         # Skip empty messages or embeds without text
         if not original_text:
-            try:
-                await user.send("That message doesn't contain text that can be translated.")
-            except discord.Forbidden:
-                # User has DMs closed
-                pass
+            await channel.send(f"{user.mention}, that message doesn't contain text that can be translated.", delete_after=10)
             return
 
         try:
@@ -85,36 +81,35 @@ class TranslatorCog(commands.Cog):
             embed.add_field(name="Languages", value=f"**From:** {source_lang}\n**To:** {target_lang}", inline=False)
             embed.set_footer(text="This translation will be deleted in 10 minutes")
             
-            # Send translation directly to the user who requested it
+            # Add who requested it
+            embed.set_author(
+                name=f"Requested by {user.display_name}", 
+                icon_url=user.display_avatar.url if hasattr(user, 'display_avatar') else None
+            )
+            
+            # Send in channel where everyone (including requester) can see it
+            translation_msg = await channel.send(
+                content=f"{user.mention}, here's your translation:",
+                embed=embed
+            )
+            
+            self.active_translations[translation_msg.id] = translation_msg
+            
+            # Schedule deletion after 10 minutes
+            self.bot.loop.create_task(self.delete_after_delay(translation_msg, 600))
+            
+            # Add confirmation reaction
             try:
-                translation_msg = await user.send(embed=embed)
-                
-                # Schedule deletion after 10 minutes
-                self.bot.loop.create_task(self.delete_after_delay(translation_msg, 600))
-                
-                # Send a confirmation reaction to the original message
-                try:
-                    await reaction.message.add_reaction("✅")
-                except discord.Forbidden:
-                    pass
-                    
+                await reaction.message.add_reaction("✅")
             except discord.Forbidden:
-                # User has DMs closed, send in channel as fallback
-                embed.set_author(name=f"Requested by {user.display_name}", icon_url=user.avatar.url if user.avatar else None)
-                embed.description += "\n(Translation sent in channel because your DMs are closed)"
-                
-                translation_msg = await channel.send(embed=embed)
-                self.active_translations[translation_msg.id] = translation_msg
-                
-                # Schedule deletion after 10 minutes
-                self.bot.loop.create_task(self.delete_after_delay(translation_msg, 600))
+                pass
                 
         except Exception as e:
             print(f"Translation failed: {e}")
-            try:
-                await user.send("An error occurred while translating the message. Please try again later.")
-            except discord.Forbidden:
-                await channel.send(f"{user.mention}, an error occurred while translating the message. Please try again later.")
+            await channel.send(
+                f"{user.mention}, an error occurred while translating the message. Please try again later.",
+                delete_after=15
+            )
 
     @commands.command()
     async def translate(self, ctx, lang: str, *, text=None):
@@ -161,6 +156,12 @@ class TranslatorCog(commands.Cog):
             embed.add_field(name="Translated Text", value=f"```{translated_text}```", inline=False)
             embed.add_field(name="Languages", value=f"**From:** {source_lang}\n**To:** {target_lang}", inline=False)
             embed.set_footer(text="This translation will be deleted in 10 minutes")
+            
+            # Set author info
+            embed.set_author(
+                name=ctx.author.display_name, 
+                icon_url=ctx.author.display_avatar.url if hasattr(ctx.author, 'display_avatar') else None
+            )
             
             # Send the translation and schedule deletion
             translation_msg = await ctx.send(embed=embed)
@@ -209,7 +210,13 @@ class TranslatorCog(commands.Cog):
             embed.add_field(name="Original Text", value=f"```{original_text}```", inline=False)
             embed.add_field(name="Translated Text", value=f"```{translated_text}```", inline=False)
             embed.add_field(name="Languages", value=f"**From:** {source_lang}\n**To:** {target_lang}", inline=False)
-            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
+            
+            # Set author info
+            embed.set_author(
+                name=ctx.author.display_name, 
+                icon_url=ctx.author.display_avatar.url if hasattr(ctx.author, 'display_avatar') else None
+            )
+            
             embed.set_footer(text="This translation will be deleted in 10 minutes")
 
             translation_msg = await ctx.send(embed=embed)
