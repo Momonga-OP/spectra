@@ -24,14 +24,25 @@ class CloneFeature(commands.Cog):
         
     async def cog_load(self):
         logger.info("CloneFeature cog loaded successfully")
-        # Wait for the bot to be fully ready before attempting to clone
-        await self.bot.wait_until_ready()
-        # Start the automatic setup process
-        await self.auto_setup()
+        # Start a background task to handle setup after the bot is ready
+        self.bot.loop.create_task(self.delayed_setup())
+        
+    async def delayed_setup(self):
+        """Wait for bot to be ready, then run setup in background"""
+        try:
+            # Wait for the bot to be fully ready
+            await self.bot.wait_until_ready()
+            logger.info("Bot is ready, starting delayed setup...")
+            # Wait an additional 10 seconds to ensure everything is initialized
+            await asyncio.sleep(10)
+            # Run the setup
+            await self.auto_setup()
+        except Exception as e:
+            logger.exception(f"Error in delayed setup: {e}")
         
 
     
-    async def rate_limited_create(self, target_guild, target_category, source_channel, ctx):
+    async def rate_limited_create(self, target_guild, target_category, source_channel, ctx=None):
         """Create a channel with rate limit handling"""
         try:
             # Create the channel in target guild
@@ -49,7 +60,10 @@ class CloneFeature(commands.Cog):
         except discord.errors.HTTPException as e:
             if e.status == 429:  # Rate limited
                 retry_after = e.retry_after
-                await ctx.send(f"Rate limited by Discord API. Waiting {retry_after:.2f} seconds before retrying...")
+                msg = f"Rate limited by Discord API. Waiting {retry_after:.2f} seconds before retrying..."
+                logger.warning(msg)
+                if ctx:
+                    await ctx.send(msg)
                 await asyncio.sleep(retry_after)
                 return await self.rate_limited_create(target_guild, target_category, source_channel, ctx)
             else:
@@ -59,6 +73,19 @@ class CloneFeature(commands.Cog):
         """Automatically setup the category cloning without requiring a command"""
         logger.info("Starting automatic category cloning setup...")
         try:
+            # Add safety checks before proceeding
+            if not self.bot.is_ready():
+                logger.warning("Bot is not ready yet, delaying auto setup")
+                return
+                
+            # Check if we can access both guilds
+            source_guild = self.bot.get_guild(self.source_server_id)
+            target_guild = self.bot.get_guild(self.target_server_id)
+            
+            if not source_guild or not target_guild:
+                logger.error(f"Cannot access guilds. Source: {bool(source_guild)}, Target: {bool(target_guild)}")
+                return
+                
             await self.clone_category_internal()
             logger.info("Automatic category cloning setup completed successfully")
         except Exception as e:
