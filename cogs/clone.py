@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import logging
 import asyncio
+from discord import app_commands
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -20,6 +21,13 @@ class CloneFeature(commands.Cog):
         }
         # Dictionary to store mappings between source and target channels
         self.channel_mapping = {}
+        
+    async def cog_load(self):
+        logger.info("CloneFeature cog loaded successfully")
+        # Wait for the bot to be fully ready before attempting to clone
+        await self.bot.wait_until_ready()
+        # Start the automatic setup process
+        await self.auto_setup()
         
 
     
@@ -47,49 +55,89 @@ class CloneFeature(commands.Cog):
             else:
                 raise
     
+    async def auto_setup(self):
+        """Automatically setup the category cloning without requiring a command"""
+        logger.info("Starting automatic category cloning setup...")
+        try:
+            await self.clone_category_internal()
+            logger.info("Automatic category cloning setup completed successfully")
+        except Exception as e:
+            logger.exception(f"Error in automatic setup: {e}")
+    
     @commands.command(name="clone_category")
     @commands.has_permissions(administrator=True)
     async def clone_category(self, ctx):
+        logger.info(f"Clone category command invoked by {ctx.author} in {ctx.guild.name if ctx.guild else 'DM'}")
         """Clone a category and its channels from source server to target server"""
+        try:
+            await self.clone_category_internal(ctx)
+        except Exception as e:
+            logger.exception(f"Error in clone_category command: {e}")
+            if ctx:
+                await ctx.send(f"An error occurred: {str(e)}")
+    
+    async def clone_category_internal(self, ctx=None):
+        """Internal method to handle the category cloning logic"""
         try:
             # Get the source guild and category
             source_guild = self.bot.get_guild(self.source_server_id)
             if not source_guild:
-                await ctx.send(f"Source guild with ID {self.source_server_id} not found!")
+                error_msg = f"Source guild with ID {self.source_server_id} not found!"
+                logger.error(error_msg)
+                if ctx:
+                    await ctx.send(error_msg)
                 return
                 
             source_category = discord.utils.get(source_guild.categories, id=self.source_category_id)
             if not source_category:
-                await ctx.send("Source category not found!")
+                error_msg = "Source category not found!"
+                logger.error(error_msg)
+                if ctx:
+                    await ctx.send(error_msg)
                 return
                 
             # Get the target guild
             target_guild = self.bot.get_guild(self.target_server_id)
             if not target_guild:
-                await ctx.send(f"Target guild with ID {self.target_server_id} not found!")
+                error_msg = f"Target guild with ID {self.target_server_id} not found!"
+                logger.error(error_msg)
+                if ctx:
+                    await ctx.send(error_msg)
                 return
                 
             # Check if bot has permissions in target guild
             bot_member = target_guild.get_member(self.bot.user.id)
             if not bot_member or not bot_member.guild_permissions.administrator:
-                await ctx.send(f"I need administrator permissions in the target guild!")
+                error_msg = "I need administrator permissions in the target guild!"
+                logger.error(error_msg)
+                if ctx:
+                    await ctx.send(error_msg)
                 return
             
             # Check if category already exists in target guild
             existing_category = discord.utils.get(target_guild.categories, name=source_category.name)
             if existing_category:
                 target_category = existing_category
-                await ctx.send(f"Using existing category '{source_category.name}' in target guild.")
+                msg = f"Using existing category '{source_category.name}' in target guild."
+                logger.info(msg)
+                if ctx:
+                    await ctx.send(msg)
             else:
                 # Create the category in the target guild with rate limit handling
                 try:
                     target_category = await target_guild.create_category(source_category.name)
                     await asyncio.sleep(1.5)  # Add delay to avoid rate limits
-                    await ctx.send(f"Created category '{source_category.name}' in target guild.")
+                    msg = f"Created category '{source_category.name}' in target guild."
+                    logger.info(msg)
+                    if ctx:
+                        await ctx.send(msg)
                 except discord.errors.HTTPException as e:
                     if e.status == 429:  # Rate limited
                         retry_after = e.retry_after
-                        await ctx.send(f"Rate limited by Discord API. Waiting {retry_after:.2f} seconds before retrying...")
+                        msg = f"Rate limited by Discord API. Waiting {retry_after:.2f} seconds before retrying..."
+                        logger.warning(msg)
+                        if ctx:
+                            await ctx.send(msg)
                         await asyncio.sleep(retry_after)
                         target_category = await target_guild.create_category(source_category.name)
                     else:
@@ -106,29 +154,45 @@ class CloneFeature(commands.Cog):
                         target_channel = self.bot.get_channel(target_channel_id)
                         
                         if target_channel:
-                            await ctx.send(f"Channel mapping for '{source_channel.name}' already exists.")
+                            msg = f"Channel mapping for '{source_channel.name}' already exists."
+                            logger.info(msg)
+                            if ctx:
+                                await ctx.send(msg)
                             continue
                     
                     # Check if a channel with the same name already exists in the target category
                     existing_channel = discord.utils.get(target_category.text_channels, name=source_channel.name)
                     if existing_channel:
                         target_channel = existing_channel
-                        await ctx.send(f"Using existing channel '{source_channel.name}' in target guild.")
+                        msg = f"Using existing channel '{source_channel.name}' in target guild."
+                        logger.info(msg)
+                        if ctx:
+                            await ctx.send(msg)
                     else:
                         # Create the channel with rate limit handling
                         target_channel = await self.rate_limited_create(target_guild, target_category, source_channel, ctx)
-                        await ctx.send(f"Created channel '{source_channel.name}' in target guild.")
+                        msg = f"Created channel '{source_channel.name}' in target guild."
+                        logger.info(msg)
+                        if ctx:
+                            await ctx.send(msg)
                     
                     # Store the mapping between source and target channels
                     self.channel_mapping[source_channel.id] = target_channel.id
                 else:
-                    await ctx.send(f"Source channel with ID {channel_id} not found!")
+                    msg = f"Source channel with ID {channel_id} not found!"
+                    logger.warning(msg)
+                    if ctx:
+                        await ctx.send(msg)
             
-            await ctx.send("Category cloning complete! Messages will now be mirrored between the channels.")
+            msg = "Category cloning complete! Messages will now be mirrored between the channels."
+            logger.info(msg)
+            if ctx:
+                await ctx.send(msg)
             
         except Exception as e:
             logger.exception("Error cloning category")
-            await ctx.send(f"An error occurred: {str(e)}")
+            if ctx:
+                await ctx.send(f"An error occurred: {str(e)}")
     
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -183,10 +247,11 @@ class CloneFeature(commands.Cog):
             except Exception as e:
                 logger.exception("Error mirroring message")
     
-    @commands.command(name="setup")
+    @commands.command(name="clonesetup")
     @commands.has_permissions(administrator=True)
     async def setup_clone(self, ctx):
         """Setup the category cloning and message mirroring between the configured servers"""
+        logger.info(f"Clone setup command invoked by {ctx.author} in {ctx.guild.name if ctx.guild else 'DM'}")
         await self.clone_category(ctx)
     
     @commands.command(name="list_mappings")
@@ -217,4 +282,8 @@ class CloneFeature(commands.Cog):
         await ctx.send("All channel mappings have been cleared.")
 
 async def setup(bot):
-    await bot.add_cog(CloneFeature(bot))
+    try:
+        await bot.add_cog(CloneFeature(bot))
+        logger.info("CloneFeature cog added successfully")
+    except Exception as e:
+        logger.exception(f"Error adding CloneFeature cog: {e}")
