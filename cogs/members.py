@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands, ui
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ GUILD_ROLES = {
     1364708638668619786: "Imperium",
     1365322130270715904: "OldNLazy",
     1325581624129097872: "Sparta",
-    1357443037311275108: "Flegias",
+    1357443037311275108: "Italians",
     1372865125366763550: "Mafia",
     1366855660632936468: "Vendetta"
 }
@@ -103,6 +104,57 @@ class NameInputModal(ui.Modal, title="Set Your In-game Name"):
             )
             logger.error(f"Error updating nickname for {member.name}: {e}")
 
+def generate_nickname_from_roles(member):
+    """Generate a nickname based on member's roles"""
+    # Get the member's roles
+    guild_leader_role = discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID)
+    second_in_command_role = discord.utils.get(member.roles, id=SECOND_IN_COMMAND_ROLE_ID)
+    
+    # Determine the prefix based on roles
+    prefix = ""
+    if guild_leader_role:
+        prefix = "{GL} "
+    elif second_in_command_role:
+        prefix = "{SIC} "
+    
+    # Find guild name from roles
+    guild_name = ""
+    for role_id, name in GUILD_ROLES.items():
+        role = discord.utils.get(member.roles, id=role_id)
+        if role:
+            guild_name = f"{{{name}}} "
+            break
+    
+    # If no relevant roles found, return None
+    if not prefix and not guild_name:
+        return None
+    
+    # Extract current in-game name from existing nickname or use display name
+    current_nickname = member.display_name
+    in_game_name = current_nickname
+    
+    # Try to extract the in-game name from existing formatted nickname
+    if current_nickname.startswith(("{GL}", "{SIC}")):
+        # Parse existing formatted nickname
+        parts = current_nickname.split("} ")
+        if len(parts) >= 2:
+            # Get the last part which should be the in-game name
+            in_game_name = parts[-1]
+        elif len(parts) == 1 and "}" in current_nickname:
+            # Handle case where there's only one part with }
+            temp = current_nickname.split("}")[-1].strip()
+            if temp:
+                in_game_name = temp
+    
+    # Format the new nickname
+    new_nickname = f"{prefix}{guild_name}{in_game_name}"
+    
+    # Truncate if too long (Discord has a 32 character limit for nicknames)
+    if len(new_nickname) > 32:
+        new_nickname = new_nickname[:32]
+    
+    return new_nickname
+
 class Members(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -110,6 +162,152 @@ class Members(commands.Cog):
         
         # Register the persistent view
         self.bot.add_view(NameButtonView())
+    
+    @app_commands.command(name="renameall", description="Automatically rename all members based on their roles")
+    async def renameall(self, interaction: discord.Interaction):
+        """Automatically rename all members in the server based on their roles"""
+        # Check if the user is the owner
+        if interaction.user.id != OWNER_ID:
+            await interaction.response.send_message("Only the server owner can use this command.", ephemeral=True)
+            return
+        
+        # Respond immediately to avoid timeout
+        await interaction.response.send_message(
+            "🔄 **Starting automatic rename process...**\n"
+            "I'll send you updates in this channel as I process members.\n"
+            "This process runs in the background and won't timeout!",
+            ephemeral=True
+        )
+        
+        # Start the background task
+        self.bot.loop.create_task(self._process_rename_all(interaction))
+    
+    async def _process_rename_all(self, interaction: discord.Interaction):
+        """Background task to process all member renames"""
+        try:
+            guild = interaction.guild
+            if not guild:
+                await interaction.followup.send("❌ Error: Could not access server information.", ephemeral=True)
+                return
+            
+            # Statistics tracking
+            renamed_count = 0
+            skipped_no_roles = 0
+            skipped_permissions = 0
+            errors = 0
+            
+            # Get all members (fetch if needed for larger servers)
+            try:
+                members = guild.members
+                if len(members) < guild.member_count:
+                    # Fetch all members if not all are cached
+                    await interaction.followup.send("📥 Fetching all server members...", ephemeral=True)
+                    members = [member async for member in guild.fetch_members(limit=None)]
+            except Exception as e:
+                logger.error(f"Error fetching members: {e}")
+                await interaction.followup.send(f"❌ Error fetching server members: {e}", ephemeral=True)
+                return
+            
+            # Filter out bots
+            real_members = [member for member in members if not member.bot]
+            
+            await interaction.followup.send(
+                f"🎯 **Processing {len(real_members)} members**\n"
+                f"Estimated time: ~{len(real_members) * 0.5 / 60:.1f} minutes\n"
+                "I'll update you every 25 members processed.",
+                ephemeral=True
+            )
+            
+            # Process each member
+            for i, member in enumerate(real_members):
+                try:
+                    # Generate new nickname based on roles
+                    new_nickname = generate_nickname_from_roles(member)
+                    
+                    # Skip if no relevant roles found
+                    if new_nickname is None:
+                        skipped_no_roles += 1
+                        logger.info(f"Skipped {member.display_name} - no relevant roles")
+                        continue
+                    
+                    # Skip if nickname is already correct
+                    if member.display_name == new_nickname:
+                        logger.info(f"Skipped {member.display_name} - nickname already correct")
+                        continue
+                    
+                    # Try to update the nickname
+                    try:
+                        await member.edit(nick=new_nickname, reason="Automatic role-based rename")
+                        renamed_count += 1
+                        logger.info(f"Renamed {member.name} to {new_nickname}")
+                        
+                    except discord.Forbidden:
+                        # Bot doesn't have permission to rename this user
+                        skipped_permissions += 1
+                        logger.warning(f"No permission to rename {member.display_name}")
+                        
+                    except discord.HTTPException as e:
+                        errors += 1
+                        logger.error(f"HTTP error renaming {member.display_name}: {e}")
+                        
+                except Exception as e:
+                    errors += 1
+                    logger.error(f"Unexpected error processing {member.display_name}: {e}")
+                
+                # Add delay to avoid rate limits (reduced from 0.5 to 0.3 seconds)
+                await asyncio.sleep(0.3)
+                
+                # Send progress updates every 25 members
+                if (i + 1) % 25 == 0:
+                    try:
+                        progress_percentage = ((i + 1) / len(real_members)) * 100
+                        await interaction.followup.send(
+                            f"⏳ **Progress Update**\n"
+                            f"Processed: {i + 1}/{len(real_members)} ({progress_percentage:.1f}%)\n"
+                            f"Renamed: {renamed_count} | Skipped: {skipped_no_roles + skipped_permissions}",
+                            ephemeral=True
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending progress update: {e}")
+            
+            # Send final summary
+            summary_embed = discord.Embed(
+                title="✅ Automatic Rename Complete!",
+                description="All members have been processed successfully!",
+                color=discord.Color.green()
+            )
+            summary_embed.add_field(
+                name="📊 Final Results",
+                value=(
+                    f"**✅ Successfully Renamed:** {renamed_count}\n"
+                    f"**⏭️ Skipped (No Roles):** {skipped_no_roles}\n"
+                    f"**🔒 Skipped (Permissions):** {skipped_permissions}\n"
+                    f"**❌ Errors:** {errors}\n"
+                    f"**👥 Total Processed:** {len(real_members)}"
+                ),
+                inline=False
+            )
+            
+            if errors > 0:
+                summary_embed.add_field(
+                    name="⚠️ Note",
+                    value="Some errors occurred during the process. Check the bot logs for details.",
+                    inline=False
+                )
+            
+            summary_embed.set_footer(text=f"Process completed • AfterLife Community")
+            
+            await interaction.followup.send(embed=summary_embed, ephemeral=True)
+            logger.info(f"Automatic rename completed: {renamed_count} renamed, {skipped_no_roles} skipped (no roles), {skipped_permissions} skipped (permissions), {errors} errors")
+            
+        except Exception as e:
+            logger.error(f"Critical error in rename process: {e}")
+            await interaction.followup.send(
+                f"❌ **Critical Error**\n"
+                f"The rename process encountered a fatal error: {e}\n"
+                f"Please check the bot logs and try again.",
+                ephemeral=True
+            )
     
     @app_commands.command(name="setname", description="Post a message asking members to set their in-game name")
     async def setname(self, interaction: discord.Interaction):
@@ -179,7 +377,7 @@ class Members(commands.Cog):
         channel = self.bot.get_channel(CHANNEL_ID)
         
         if not channel:
-            await interaction.response.send_message(f"Could not find channel with ID {channel_id}", ephemeral=True)
+            await interaction.response.send_message(f"Could not find channel with ID {CHANNEL_ID}", ephemeral=True)
             return
         
         # Try to delete the existing message
@@ -197,9 +395,6 @@ class Members(commands.Cog):
         self.message_id = None
         
         await interaction.response.send_message("Setup message has been reset. Use /setname to create a new one.", ephemeral=True)
-
-    # We're not recreating the message on bot restart
-    # This is a simpler approach without file storage
 
 async def setup(bot):
     await bot.add_cog(Members(bot))
