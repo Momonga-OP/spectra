@@ -27,8 +27,7 @@ CURRENCY_SYMBOLS = {
     "USD": "$"
 }
 
-# Verification data file
-VERIFICATION_DATA_FILE = "verified_sellers.json"
+# All verification data is now stored in Discord channels and roles
 
 async def get_verified_role(guild):
     """Get or create the verified seller role."""
@@ -188,9 +187,7 @@ class VerificationModal(ui.Modal, title="Seller Verification Application"):
                 return
             
             # Create verification entry
-            verification_data = load_verification_data()
             user_id = str(interaction.user.id)
-            
             verification_entry = {
                 'user_id': user_id,
                 'username': interaction.user.display_name,
@@ -204,9 +201,6 @@ class VerificationModal(ui.Modal, title="Seller Verification Application"):
                 'verified_date': None,
                 'verified_by': None
             }
-            
-            verification_data[user_id] = verification_entry
-            save_verification_data(verification_data)
             
             # Create admin notification embed
             admin_embed = discord.Embed(
