@@ -90,15 +90,45 @@ def hash_sensitive_data(data):
     """Hash sensitive data for security."""
     return hashlib.sha256(data.encode()).hexdigest()
 
-def is_verified_seller(user_id):
+async def is_verified_seller(user_id, guild):
     """Check if a user is a verified seller."""
-    verification_data = load_verification_data()
-    return str(user_id) in verification_data and verification_data[str(user_id)].get('verified', False)
+    verified_role = discord.utils.get(guild.roles, name="Verified Seller")
+    if not verified_role:
+        return False
+    
+    member = await guild.fetch_member(int(user_id))
+    if not member:
+        return False
+    
+    return verified_role in member.roles
 
-def get_seller_profile(user_id):
-    """Get seller profile data."""
-    verification_data = load_verification_data()
-    return verification_data.get(str(user_id), {})
+async def get_seller_profile(user_id, guild):
+    """Get seller profile data from Discord channel."""
+    try:
+        channel = guild.get_channel(VERIFIED_DATA_CHANNEL_ID)
+        if not channel:
+            return {}
+            
+        # Search through messages to find the user's verification file
+        async for message in channel.history(limit=1000):
+            if message.attachments:
+                for attachment in message.attachments:
+                    if str(attachment.id) == str(user_id):
+                        # Download and parse the file
+                        file_content = await attachment.read()
+                        text = file_content.decode('utf-8')
+                        # Parse the text file content
+                        profile = {}
+                        lines = text.split('\n')
+                        for line in lines:
+                            if ':' in line:
+                                key, value = line.split(':', 1)
+                                profile[key.strip()] = value.strip()
+                        return profile
+        return {}
+    except Exception as e:
+        logger.exception(f"Error getting seller profile: {e}")
+        return {}
 
 class ThreadManagementView(ui.View):
     """Provides buttons for thread management (close/delete)."""
@@ -721,24 +751,14 @@ class KamasView(ui.View):
     @discord.ui.button(label="BECOME VERIFIED SELLER", style=discord.ButtonStyle.secondary, custom_id="verify_seller", emoji="🏆")
     async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Check if already verified
-        if is_verified_seller(interaction.user.id):
-            profile = get_seller_profile(interaction.user.id)
-            verified_date = datetime.fromisoformat(profile['verified_date']).strftime('%Y-%m-%d')
+        if await is_verified_seller(interaction.user.id, interaction.guild):
+            profile = await get_seller_profile(interaction.user.id, interaction.guild)
+            verified_date = datetime.fromisoformat(profile['Verified Date']).strftime('%Y-%m-%d')
             await interaction.response.send_message(
                 f"🏆 **You are already a Verified Seller!**\n\n"
                 f"✅ Verified on: {verified_date}\n"
                 f"🎯 Status: Active\n\n"
                 f"Your listings automatically show the verified badge. Thank you for being a trusted member of AFL Wall Street!",
-                ephemeral=True
-            )
-            return
-        
-        # Check if already has pending application
-        verification_data = load_verification_data()
-        if str(interaction.user.id) in verification_data:
-            await interaction.response.send_message(
-                "⚠️ You already have a pending verification application. Please wait for it to be processed.\n"
-                "If you need to update your information, please contact an administrator.",
                 ephemeral=True
             )
             return
