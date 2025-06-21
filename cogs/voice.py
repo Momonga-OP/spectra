@@ -212,8 +212,12 @@ class Voice(commands.Cog):
                 logger.error(f"Error in periodic cleanup: {e}")
 
     async def connect_to_channel(self, channel: discord.VoiceChannel, 
-                               retries: int = 3, delay: float = 5) -> Optional[discord.VoiceClient]:
+                           retries: int = 3, delay: float = 5) -> Optional[discord.VoiceClient]:
         """Enhanced connect to voice channel with retry logic"""
+        if not isinstance(channel, discord.VoiceChannel):
+            logger.error(f"Invalid channel type: {type(channel)}")
+            return None
+            
         if channel.guild.id in self.active_connections:
             logger.debug(f"Already connected to guild {channel.guild.id}")
             return None
@@ -221,11 +225,25 @@ class Voice(commands.Cog):
         for attempt in range(retries):
             try:
                 logger.info(f"Connecting to voice channel {channel.id} (attempt {attempt + 1})")
+                
+                # Verify permissions
+                perms = channel.permissions_for(channel.guild.me)
+                if not all([perms.connect, perms.speak]):
+                    logger.error(f"Missing permissions in channel {channel.id}: Connect={perms.connect}, Speak={perms.speak}")
+                    return None
+                    
                 vc = await channel.connect(timeout=20.0, reconnect=True)
                 self.active_connections.add(channel.guild.id)
                 return vc
+            except discord.ClientException as e:
+                logger.error(f"ClientException: {e}")
+                if "Already connected" in str(e):
+                    return None
+                raise
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout connecting to channel {channel.id}")
             except Exception as e:
-                logger.warning(f"Connection attempt {attempt + 1}/{retries} failed: {e}")
+                logger.error(f"Connection attempt {attempt + 1}/{retries} failed: {type(e).__name__}: {e}")
                 if attempt < retries - 1:
                     await asyncio.sleep(delay * (attempt + 1))
                 else:
