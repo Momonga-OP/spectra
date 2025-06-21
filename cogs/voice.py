@@ -168,6 +168,11 @@ class Voice(commands.Cog):
         self.rate_limiter = RateLimiter()
         self.active_connections: Set[int] = set()  # Track active voice connections
         
+        # Problematic voice servers to avoid
+        self.BLACKLISTED_ENDPOINTS = [
+            'c-ord06-5fd87183.discord.media'
+        ]
+        
         # Server-specific configurations
         self.welcome_configs = {
             1300093554064097400: WelcomeConfig(  # French server
@@ -222,7 +227,7 @@ class Voice(commands.Cog):
             logger.debug(f"Already connected to guild {channel.guild.id}")
             return None
 
-        # Get guild's voice region if available
+        # Get guild's preferred region
         voice_region = getattr(channel.guild, 'region', 'us-central')
         logger.info(f"Attempting connection to {channel.id} in region: {voice_region}")
 
@@ -236,20 +241,27 @@ class Voice(commands.Cog):
                     logger.error(f"Missing permissions in channel {channel.id}: Connect={perms.connect}, Speak={perms.speak}")
                     return None
                     
-                # Force new voice connection with specified region
+                # Force new voice connection
                 voice_client = await channel.connect(
-                    timeout=20.0, 
+                    timeout=30.0,  # Increased timeout
                     reconnect=True,
                     self_deaf=True
                 )
                 
-                # Workaround for connection issues
-                await asyncio.sleep(1)  # Brief pause after connection
+                # Check if connected to blacklisted server
+                if hasattr(voice_client, 'endpoint') and voice_client.endpoint:
+                    if any(bl in voice_client.endpoint for bl in self.BLACKLISTED_ENDPOINTS):
+                        logger.warning(f"Connected to blacklisted endpoint: {voice_client.endpoint}")
+                        await voice_client.disconnect()
+                        raise ConnectionError("Blacklisted voice server")
+                
+                await asyncio.sleep(1)  # Stabilization delay
                 
                 if not voice_client.is_connected():
                     raise ConnectionError("Voice client failed to establish connection")
                     
                 self.active_connections.add(channel.guild.id)
+                logger.info(f"Successfully connected to voice channel {channel.id}")
                 return voice_client
                 
             except discord.ClientException as e:
