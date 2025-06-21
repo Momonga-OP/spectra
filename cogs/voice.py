@@ -222,6 +222,10 @@ class Voice(commands.Cog):
             logger.debug(f"Already connected to guild {channel.guild.id}")
             return None
 
+        # Get guild's voice region if available
+        voice_region = getattr(channel.guild, 'region', 'us-central')
+        logger.info(f"Attempting connection to {channel.id} in region: {voice_region}")
+
         for attempt in range(retries):
             try:
                 logger.info(f"Connecting to voice channel {channel.id} (attempt {attempt + 1})")
@@ -232,13 +236,26 @@ class Voice(commands.Cog):
                     logger.error(f"Missing permissions in channel {channel.id}: Connect={perms.connect}, Speak={perms.speak}")
                     return None
                     
-                vc = await channel.connect(timeout=20.0, reconnect=True)
+                # Force new voice connection with specified region
+                voice_client = await channel.connect(
+                    timeout=20.0, 
+                    reconnect=True,
+                    self_deaf=True
+                )
+                
+                # Workaround for connection issues
+                await asyncio.sleep(1)  # Brief pause after connection
+                
+                if not voice_client.is_connected():
+                    raise ConnectionError("Voice client failed to establish connection")
+                    
                 self.active_connections.add(channel.guild.id)
-                return vc
+                return voice_client
+                
             except discord.ClientException as e:
-                logger.error(f"ClientException: {e}")
                 if "Already connected" in str(e):
                     return None
+                logger.error(f"ClientException during connection: {e}")
                 raise
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout connecting to channel {channel.id}")
