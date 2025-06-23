@@ -76,13 +76,36 @@ class NameInputModal(ui.Modal, title="Set Your In-game Name"):
         for role_id, name in GUILD_ROLES.items():
             role = discord.utils.get(member.roles, id=role_id)
             if role:
-                guild_name = f"{{{name}}}"  # Remove space here
-                # Check if guild name is already in current nickname to avoid duplicates
-                if member.nick and guild_name in member.nick:
-                    guild_name = ""
-                else:
-                    guild_name += " "  # Add space after guild name if not duplicate
+                guild_tag = f"{{{name}}}"
+                # Check if guild tag already exists in current nickname
+                if member.display_name and guild_tag in member.display_name:
+                    # If already exists, don't add it again
+                    continue
+                guild_name = f"{guild_tag} "
                 break
+        
+        # Get current name (either nickname or username)
+        current_name = member.display_name
+        
+        # Clean up any existing duplicate guild tags from current name
+        if current_name:
+            # Remove all existing guild tags
+            for name in GUILD_ROLES.values():
+                current_name = current_name.replace(f"{{{name}}}", "")
+            # Remove any extra spaces
+            current_name = " ".join(current_name.split())
+        else:
+            current_name = member.name
+        
+        # Build the new nickname
+        new_nickname = f"{prefix}{guild_name}{current_name}"
+        
+        # Clean up any remaining duplicate spaces
+        new_nickname = " ".join(new_nickname.split())
+        
+        # Truncate if too long (Discord has a 32 character limit for nicknames)
+        if len(new_nickname) > 32:
+            new_nickname = new_nickname[:32]
         
         # Format the new nickname
         in_game_name = self.ingame_name.value.strip()
@@ -134,32 +157,32 @@ def generate_nickname_from_roles(member):
     for role_id, name in GUILD_ROLES.items():
         role = discord.utils.get(member.roles, id=role_id)
         if role:
-            guild_name = f"{{{name}}} "
+            guild_tag = f"{{{name}}}"
+            # Check if guild tag already exists in current nickname
+            if member.display_name and guild_tag in member.display_name:
+                # If already exists, don't add it again
+                continue
+            guild_name = f"{guild_tag} "
             break
     
-    # If no relevant roles found, return None
-    if not prefix and not guild_name:
-        return None
+    # Get current name (either nickname or username)
+    current_name = member.display_name
     
-    # Extract current in-game name from existing nickname or use display name
-    current_nickname = member.display_name
-    in_game_name = current_nickname
+    # Clean up any existing duplicate guild tags from current name
+    if current_name:
+        # Remove all existing guild tags
+        for name in GUILD_ROLES.values():
+            current_name = current_name.replace(f"{{{name}}}", "")
+        # Remove any extra spaces
+        current_name = " ".join(current_name.split())
+    else:
+        current_name = member.name
     
-    # Try to extract the in-game name from existing formatted nickname
-    if current_nickname.startswith(("{GL}", "{SIC}")):
-        # Parse existing formatted nickname
-        parts = current_nickname.split("} ")
-        if len(parts) >= 2:
-            # Get the last part which should be the in-game name
-            in_game_name = parts[-1]
-        elif len(parts) == 1 and "}" in current_nickname:
-            # Handle case where there's only one part with }
-            temp = current_nickname.split("}")[-1].strip()
-            if temp:
-                in_game_name = temp
+    # Build the new nickname
+    new_nickname = f"{prefix}{guild_name}{current_name}"
     
-    # Format the new nickname
-    new_nickname = f"{prefix}{guild_name}{in_game_name}"
+    # Clean up any remaining duplicate spaces
+    new_nickname = " ".join(new_nickname.split())
     
     # Truncate if too long (Discord has a 32 character limit for nicknames)
     if len(new_nickname) > 32:
