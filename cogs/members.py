@@ -258,7 +258,7 @@ class Members(commands.Cog):
             for i, member in enumerate(real_members):
                 try:
                     # Generate new nickname based on roles
-                    new_nickname = generate_nickname_from_roles(member)
+                    new_nickname = self._generate_proper_nickname(member)
                     
                     # Skip if no relevant roles found
                     if new_nickname is None:
@@ -410,6 +410,145 @@ class Members(commands.Cog):
         self.message_id = None
         
         await interaction.response.send_message("Setup message has been reset. Use /setname to create a new one.", ephemeral=True)
+
+    @app_commands.command(name="resetnames", description="Reset all members' nicknames to their usernames")
+    async def resetnames(self, interaction: discord.Interaction):
+        """Reset all nicknames to usernames"""
+        # Check if the user is the owner
+        if interaction.user.id != OWNER_ID:
+            await interaction.response.send_message("Only the server owner can use this command.", ephemeral=True)
+            return
+        
+        # Respond immediately to avoid timeout
+        await interaction.response.send_message(
+            "🔄 **Starting nickname reset process...**\n"
+            "I'll reset all nicknames to usernames and post updates in this channel.",
+            ephemeral=True
+        )
+        
+        # Send initial public message
+        public_msg = await interaction.channel.send("🔧 **Starting nickname reset process initiated by the server owner**")
+        
+        # Start the background task
+        self.bot.loop.create_task(self._process_reset_names(interaction, public_msg))
+    
+    async def _process_reset_names(self, interaction: discord.Interaction, public_msg: discord.Message):
+        """Background task to reset all nicknames"""
+        try:
+            guild = interaction.guild
+            if not guild:
+                await interaction.followup.send("❌ Error: Could not access server information.", ephemeral=True)
+                return
+            
+            # Statistics tracking
+            reset_count = 0
+            skipped_count = 0
+            errors = 0
+            
+            # Get all members (fetch if needed for larger servers)
+            try:
+                members = guild.members
+                if len(members) < guild.member_count:
+                    await public_msg.edit(content=f"{public_msg.content}\n📥 Fetching all server members...")
+                    members = [member async for member in guild.fetch_members(limit=None)]
+            except Exception as e:
+                logger.error(f"Error fetching members: {e}")
+                await public_msg.edit(content=f"{public_msg.content}\n❌ Error fetching server members")
+                return
+            
+            # Filter out bots
+            real_members = [member for member in members if not member.bot]
+            
+            await public_msg.edit(
+                content=f"{public_msg.content}\n"
+                f"🎯 **Processing {len(real_members)} members**\n"
+                f"Estimated time: ~{len(real_members) * 0.3 / 60:.1f} minutes"
+            )
+            
+            # Process each member
+            for i, member in enumerate(real_members):
+                try:
+                    # Skip if no nickname set
+                    if not member.nick:
+                        skipped_count += 1
+                        continue
+                        
+                    # Reset to username
+                    try:
+                        await member.edit(nick=None, reason="Reset nickname")
+                        reset_count += 1
+                        logger.info(f"Reset nickname for {member.name}")
+                        
+                    except discord.Forbidden:
+                        skipped_count += 1
+                        logger.warning(f"No permission to reset {member.display_name}")
+                        
+                    except discord.HTTPException as e:
+                        errors += 1
+                        logger.error(f"HTTP error resetting {member.display_name}: {e}")
+                        
+                except Exception as e:
+                    errors += 1
+                    logger.error(f"Unexpected error processing {member.display_name}: {e}")
+                
+                # Add delay to avoid rate limits
+                await asyncio.sleep(0.3)
+                
+                # Update progress every 25 members
+                if (i + 1) % 25 == 0:
+                    try:
+                        progress_percentage = ((i + 1) / len(real_members)) * 100
+                        await public_msg.edit(
+                            content=f"{public_msg.content.split('🎯')[0]}🎯 **Processing {len(real_members)} members**\n"
+                            f"⏳ Progress: {i + 1}/{len(real_members)} ({progress_percentage:.1f}%)\n"
+                            f"✅ Reset: {reset_count} | ⏭️ Skipped: {skipped_count}"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error updating progress: {e}")
+            
+            # Send final summary
+            summary = (
+                f"✅ **Nickname Reset Complete!**\n"
+                f"**Successfully Reset:** {reset_count}\n"
+                f"**Skipped:** {skipped_count}\n"
+                f"**Errors:** {errors}\n"
+                f"**Total Processed:** {len(real_members)}"
+            )
+            
+            if errors > 0:
+                summary += "\n\n⚠️ Some errors occurred. Check bot logs for details."
+            
+            await public_msg.edit(content=f"{public_msg.content}\n\n{summary}")
+            
+        except Exception as e:
+            logger.error(f"Error in reset process: {e}")
+            await public_msg.edit(content=f"{public_msg.content}\n❌ Process failed: {str(e)}")
+            
+    def _generate_proper_nickname(self, member, in_game_name=None):
+        """Generate properly formatted nickname: {role} {guild} name"""
+        # Get role prefix
+        prefix = ""
+        if discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID):
+            prefix = "{GL} "
+        elif discord.utils.get(member.roles, id=SECOND_IN_COMMAND_ROLE_ID):
+            prefix = "{SIC} "
+            
+        # Get guild tag
+        guild_tag = ""
+        for role_id, name in GUILD_ROLES.items():
+            if discord.utils.get(member.roles, id=role_id):
+                guild_tag = f"{{{name}}} "
+                break
+                
+        # Use provided name or username
+        name = in_game_name.strip() if in_game_name else member.name
+        
+        # Build and clean nickname
+        nickname = f"{prefix}{guild_tag}{name}"
+        nickname = " ".join(nickname.split())  # Clean extra spaces
+        
+        # Truncate if needed
+        return nickname[:32] if len(nickname) > 32 else nickname
 
 async def setup(bot):
     await bot.add_cog(Members(bot))
