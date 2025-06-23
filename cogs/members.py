@@ -495,8 +495,8 @@ class Members(commands.Cog):
                 guild_tag = f"{{{name}}} "
                 break
                 
-        # Use provided name or username
-        name = in_game_name.strip() if in_game_name else member.name
+        # Use provided name or display name
+        name = in_game_name.strip() if in_game_name else member.display_name or member.name
         
         # Build and clean nickname
         nickname = f"{prefix}{guild_tag}{name}"
