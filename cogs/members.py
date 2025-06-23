@@ -76,12 +76,24 @@ class NameInputModal(ui.Modal, title="Set Your In-game Name"):
         for role_id, name in GUILD_ROLES.items():
             role = discord.utils.get(member.roles, id=role_id)
             if role:
-                guild_name = f"{{{name}}} "
+                guild_name = f"{{{name}}}"  # Remove space here
+                # Check if guild name is already in current nickname to avoid duplicates
+                if member.nick and guild_name in member.nick:
+                    guild_name = ""
+                else:
+                    guild_name += " "  # Add space after guild name if not duplicate
                 break
         
         # Format the new nickname
         in_game_name = self.ingame_name.value.strip()
         new_nickname = f"{prefix}{guild_name}{in_game_name}"
+        
+        # Clean up any existing duplicate guild names
+        if member.nick:
+            for name in GUILD_ROLES.values():
+                guild_tag = f"{{{name}}}"
+                while guild_tag + " " + guild_tag in member.nick:
+                    member.nick = member.nick.replace(guild_tag + " " + guild_tag, guild_tag)
         
         # Truncate if too long (Discord has a 32 character limit for nicknames)
         if len(new_nickname) > 32:
@@ -171,18 +183,20 @@ class Members(commands.Cog):
             await interaction.response.send_message("Only the server owner can use this command.", ephemeral=True)
             return
         
-        # Respond immediately to avoid timeout
+        # Respond immediately to avoid timeout (ephemeral - only to user)
         await interaction.response.send_message(
             "🔄 **Starting automatic rename process...**\n"
-            "I'll send you updates in this channel as I process members.\n"
-            "This process runs in the background and won't timeout!",
+            "I'll post public updates in this channel as I process members.",
             ephemeral=True
         )
         
+        # Send initial public message
+        public_msg = await interaction.channel.send("🔧 **Starting member rename process initiated by the server owner**")
+        
         # Start the background task
-        self.bot.loop.create_task(self._process_rename_all(interaction))
+        self.bot.loop.create_task(self._process_rename_all(interaction, public_msg))
     
-    async def _process_rename_all(self, interaction: discord.Interaction):
+    async def _process_rename_all(self, interaction: discord.Interaction, public_msg: discord.Message):
         """Background task to process all member renames"""
         try:
             guild = interaction.guild
@@ -201,21 +215,20 @@ class Members(commands.Cog):
                 members = guild.members
                 if len(members) < guild.member_count:
                     # Fetch all members if not all are cached
-                    await interaction.followup.send("📥 Fetching all server members...", ephemeral=True)
+                    await public_msg.edit(content=f"{public_msg.content}\n📥 Fetching all server members...")
                     members = [member async for member in guild.fetch_members(limit=None)]
             except Exception as e:
                 logger.error(f"Error fetching members: {e}")
-                await interaction.followup.send(f"❌ Error fetching server members: {e}", ephemeral=True)
+                await public_msg.edit(content=f"{public_msg.content}\n❌ Error fetching server members")
                 return
             
             # Filter out bots
             real_members = [member for member in members if not member.bot]
             
-            await interaction.followup.send(
+            await public_msg.edit(
+                content=f"{public_msg.content}\n"
                 f"🎯 **Processing {len(real_members)} members**\n"
-                f"Estimated time: ~{len(real_members) * 0.5 / 60:.1f} minutes\n"
-                "I'll update you every 25 members processed.",
-                ephemeral=True
+                f"Estimated time: ~{len(real_members) * 0.3 / 60:.1f} minutes"
             )
             
             # Process each member
@@ -254,60 +267,39 @@ class Members(commands.Cog):
                     errors += 1
                     logger.error(f"Unexpected error processing {member.display_name}: {e}")
                 
-                # Add delay to avoid rate limits (reduced from 0.5 to 0.3 seconds)
+                # Add delay to avoid rate limits
                 await asyncio.sleep(0.3)
                 
-                # Send progress updates every 25 members
+                # Update progress every 25 members
                 if (i + 1) % 25 == 0:
                     try:
                         progress_percentage = ((i + 1) / len(real_members)) * 100
-                        await interaction.followup.send(
-                            f"⏳ **Progress Update**\n"
-                            f"Processed: {i + 1}/{len(real_members)} ({progress_percentage:.1f}%)\n"
-                            f"Renamed: {renamed_count} | Skipped: {skipped_no_roles + skipped_permissions}",
-                            ephemeral=True
+                        await public_msg.edit(
+                            content=f"{public_msg.content.split('🎯')[0]}🎯 **Processing {len(real_members)} members**\n"
+                            f"⏳ Progress: {i + 1}/{len(real_members)} ({progress_percentage:.1f}%)\n"
+                            f"✅ Renamed: {renamed_count} | ⏭️ Skipped: {skipped_no_roles + skipped_permissions}"
                         )
                     except Exception as e:
-                        logger.error(f"Error sending progress update: {e}")
+                        logger.error(f"Error updating progress: {e}")
             
             # Send final summary
-            summary_embed = discord.Embed(
-                title="✅ Automatic Rename Complete!",
-                description="All members have been processed successfully!",
-                color=discord.Color.green()
-            )
-            summary_embed.add_field(
-                name="📊 Final Results",
-                value=(
-                    f"**✅ Successfully Renamed:** {renamed_count}\n"
-                    f"**⏭️ Skipped (No Roles):** {skipped_no_roles}\n"
-                    f"**🔒 Skipped (Permissions):** {skipped_permissions}\n"
-                    f"**❌ Errors:** {errors}\n"
-                    f"**👥 Total Processed:** {len(real_members)}"
-                ),
-                inline=False
+            summary = (
+                f"✅ **Automatic Rename Complete!**\n"
+                f"**Successfully Renamed:** {renamed_count}\n"
+                f"**Skipped (No Roles):** {skipped_no_roles}\n"
+                f"**Skipped (Permissions):** {skipped_permissions}\n"
+                f"**Errors:** {errors}\n"
+                f"**Total Processed:** {len(real_members)}"
             )
             
             if errors > 0:
-                summary_embed.add_field(
-                    name="⚠️ Note",
-                    value="Some errors occurred during the process. Check the bot logs for details.",
-                    inline=False
-                )
+                summary += "\n\n⚠️ Some errors occurred. Check bot logs for details."
             
-            summary_embed.set_footer(text=f"Process completed • AfterLife Community")
-            
-            await interaction.followup.send(embed=summary_embed, ephemeral=True)
-            logger.info(f"Automatic rename completed: {renamed_count} renamed, {skipped_no_roles} skipped (no roles), {skipped_permissions} skipped (permissions), {errors} errors")
+            await public_msg.edit(content=f"{public_msg.content}\n\n{summary}")
             
         except Exception as e:
-            logger.error(f"Critical error in rename process: {e}")
-            await interaction.followup.send(
-                f"❌ **Critical Error**\n"
-                f"The rename process encountered a fatal error: {e}\n"
-                f"Please check the bot logs and try again.",
-                ephemeral=True
-            )
+            logger.error(f"Error in rename process: {e}")
+            await public_msg.edit(content=f"{public_msg.content}\n❌ Process failed: {str(e)}")
     
     @app_commands.command(name="setname", description="Post a message asking members to set their in-game name")
     async def setname(self, interaction: discord.Interaction):
