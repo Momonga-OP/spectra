@@ -81,7 +81,14 @@ class NameInputModal(ui.Modal, title="Set Your In-game Name"):
         
         # Format the new nickname
         in_game_name = self.ingame_name.value.strip()
-        new_nickname = f"{prefix}{guild_name}{in_game_name}"
+        base_name = in_game_name
+        
+        # Clean the base name by removing existing tags
+        tags_to_remove = ["{GL}", "{SIC}"] + [f"{{{name}}}" for name in GUILD_ROLES.values()]
+        for tag in tags_to_remove:
+            base_name = base_name.replace(tag, "").strip()
+        
+        new_nickname = f"{prefix}{guild_name}{base_name}"
         
         # Clean up any remaining duplicate spaces
         new_nickname = " ".join(new_nickname.split())
@@ -130,8 +137,13 @@ def generate_nickname_from_roles(member):
             guild_name = f"{{{name}}} "
             break
     
-    # Use the member's name as the base
-    base_name = member.name
+    # Use the member's display name as the base
+    base_name = member.display_name or member.name
+    
+    # Clean the base name by removing existing tags
+    tags_to_remove = ["{GL}", "{SIC}"] + [f"{{{name}}}" for name in GUILD_ROLES.values()]
+    for tag in tags_to_remove:
+        base_name = base_name.replace(tag, "").strip()
     
     # Build the nickname
     nickname = f"{prefix}{guild_name}{base_name}"
@@ -480,7 +492,7 @@ class Members(commands.Cog):
             await public_msg.edit(content=f"{public_msg.content}\n❌ Process failed: {str(e)}")
             
     def _generate_proper_nickname(self, member, in_game_name=None):
-        """Generate properly formatted nickname: {role} {guild} name"""
+        """Generate properly formatted nickname: {role} {guild} display_name"""
         # Get role prefix
         prefix = ""
         if discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID):
@@ -496,10 +508,15 @@ class Members(commands.Cog):
                 break
                 
         # Use provided name or display name
-        name = in_game_name.strip() if in_game_name else member.display_name or member.name
+        base_name = in_game_name.strip() if in_game_name else member.display_name or member.name
+        
+        # Clean the base name by removing existing tags
+        tags_to_remove = ["{GL}", "{SIC}"] + [f"{{{name}}}" for name in GUILD_ROLES.values()]
+        for tag in tags_to_remove:
+            base_name = base_name.replace(tag, "").strip()
         
         # Build and clean nickname
-        nickname = f"{prefix}{guild_tag}{name}"
+        nickname = f"{prefix}{guild_tag}{base_name}"
         nickname = " ".join(nickname.split())  # Clean extra spaces
         
         # Truncate if needed
