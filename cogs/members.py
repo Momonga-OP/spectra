@@ -31,6 +31,69 @@ GUILD_ROLES = {
     1366855660632936468: "Vendetta"
 }
 
+def get_clean_display_name(member):
+    """Get the user's actual display name (not username) by checking their global name first"""
+    # Priority: global_name (display name) > username
+    # member.global_name is the "display name" feature Discord introduced
+    return member.global_name or member.name
+
+def clean_name_from_tags(name):
+    """Remove all existing tags from a name"""
+    if not name:
+        return ""
+    
+    # Remove role prefixes
+    name = name.replace("{GL}", "").replace("{SIC}", "").strip()
+    
+    # Remove guild tags
+    for guild_name in GUILD_ROLES.values():
+        name = name.replace(f"{{{guild_name}}}", "").strip()
+    
+    # Clean up extra spaces
+    name = " ".join(name.split())
+    
+    return name
+
+def generate_proper_nickname(member, custom_name=None):
+    """Generate properly formatted nickname with no duplications"""
+    # Get role prefix
+    role_prefix = ""
+    if discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID):
+        role_prefix = "{GL} "
+    elif discord.utils.get(member.roles, id=SECOND_IN_COMMAND_ROLE_ID):
+        role_prefix = "{SIC} "
+    
+    # Get guild tag
+    guild_tag = ""
+    for role_id, guild_name in GUILD_ROLES.items():
+        if discord.utils.get(member.roles, id=role_id):
+            guild_tag = f"{{{guild_name}}} "
+            break
+    
+    # Get base name - priority: custom_name > clean display name > clean username
+    if custom_name:
+        base_name = clean_name_from_tags(custom_name.strip())
+    else:
+        # Use the member's actual display name (global_name) or username
+        display_name = get_clean_display_name(member)
+        base_name = clean_name_from_tags(display_name)
+    
+    # If no relevant roles, return None (member shouldn't be renamed)
+    if not role_prefix and not guild_tag:
+        return None
+    
+    # Build final nickname
+    nickname = f"{role_prefix}{guild_tag}{base_name}".strip()
+    
+    # Clean up any extra spaces
+    nickname = " ".join(nickname.split())
+    
+    # Truncate if too long (Discord limit is 32 characters)
+    if len(nickname) > 32:
+        nickname = nickname[:32]
+    
+    return nickname
+
 # Persistent view for the button
 class NameButtonView(ui.View):
     def __init__(self):
@@ -60,47 +123,20 @@ class NameInputModal(ui.Modal, title="Set Your In-game Name"):
         # Get the member
         member = interaction.user
         
-        # Get the member's roles
-        guild_leader_role = discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID)
-        second_in_command_role = discord.utils.get(member.roles, id=SECOND_IN_COMMAND_ROLE_ID)
+        # Generate new nickname with the provided in-game name
+        new_nickname = generate_proper_nickname(member, self.ingame_name.value)
         
-        # Determine the prefix based on roles
-        prefix = ""
-        if guild_leader_role:
-            prefix = "{GL} "
-        elif second_in_command_role:
-            prefix = "{SIC} "
-        
-        # Find guild name from roles
-        guild_name = ""
-        for role_id, name in GUILD_ROLES.items():
-            role = discord.utils.get(member.roles, id=role_id)
-            if role:
-                guild_name = f"{{{name}}} "
-                break
-        
-        # Format the new nickname
-        in_game_name = self.ingame_name.value.strip()
-        base_name = in_game_name
-        
-        # Clean the base name by removing existing tags
-        tags_to_remove = ["{GL}", "{SIC}"] + [f"{{{name}}}" for name in GUILD_ROLES.values()]
-        for tag in tags_to_remove:
-            base_name = base_name.replace(tag, "").strip()
-        
-        new_nickname = f"{prefix}{guild_name}{base_name}"
-        
-        # Clean up any remaining duplicate spaces
-        new_nickname = " ".join(new_nickname.split())
-        
-        # Truncate if too long (Discord has a 32 character limit for nicknames)
-        if len(new_nickname) > 32:
-            new_nickname = new_nickname[:32]
+        if not new_nickname:
+            await interaction.response.send_message(
+                "You don't have any guild roles assigned. Please contact an admin to get your roles first.",
+                ephemeral=True
+            )
+            return
         
         try:
             await member.edit(nick=new_nickname)
             await interaction.response.send_message(
-                f"Your in-game name has been set to: {new_nickname}", 
+                f"Your in-game name has been set to: **{new_nickname}**", 
                 ephemeral=True
             )
             logger.info(f"Set nickname for {member.name} to {new_nickname}")
@@ -116,47 +152,6 @@ class NameInputModal(ui.Modal, title="Set Your In-game Name"):
             )
             logger.error(f"Error setting nickname for {member.name}: {e}")
 
-def generate_nickname_from_roles(member):
-    """Generate a nickname based on member's roles"""
-    # Get the member's roles
-    guild_leader_role = discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID)
-    second_in_command_role = discord.utils.get(member.roles, id=SECOND_IN_COMMAND_ROLE_ID)
-    
-    # Determine the prefix based on roles
-    prefix = ""
-    if guild_leader_role:
-        prefix = "{GL} "
-    elif second_in_command_role:
-        prefix = "{SIC} "
-    
-    # Find guild name from roles
-    guild_name = ""
-    for role_id, name in GUILD_ROLES.items():
-        role = discord.utils.get(member.roles, id=role_id)
-        if role:
-            guild_name = f"{{{name}}} "
-            break
-    
-    # Use the member's display name as the base
-    base_name = member.display_name or member.name
-    
-    # Clean the base name by removing existing tags
-    tags_to_remove = ["{GL}", "{SIC}"] + [f"{{{name}}}" for name in GUILD_ROLES.values()]
-    for tag in tags_to_remove:
-        base_name = base_name.replace(tag, "").strip()
-    
-    # Build the nickname
-    nickname = f"{prefix}{guild_name}{base_name}"
-    
-    # Clean up any remaining duplicate spaces
-    nickname = " ".join(nickname.split())
-    
-    # Truncate if too long (Discord has a 32 character limit for nicknames)
-    if len(nickname) > 32:
-        nickname = nickname[:32]
-    
-    return nickname
-
 class Members(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -164,6 +159,130 @@ class Members(commands.Cog):
         
         # Register the persistent view
         self.bot.add_view(NameButtonView())
+    
+    @app_commands.command(name="fixnames", description="Fix all member nicknames using their proper display names")
+    async def fixnames(self, interaction: discord.Interaction):
+        """Fix all member nicknames using their proper display names"""
+        # Check if the user is the owner
+        if interaction.user.id != OWNER_ID:
+            await interaction.response.send_message("Only the server owner can use this command.", ephemeral=True)
+            return
+        
+        # Respond immediately to avoid timeout
+        await interaction.response.send_message(
+            "🔧 **Starting display name fix process...**\n"
+            "I'll fix all nicknames using proper display names and post updates in this channel.",
+            ephemeral=True
+        )
+        
+        # Send initial public message
+        public_msg = await interaction.channel.send("🔧 **Starting display name fix process initiated by the server owner**")
+        
+        # Start the background task
+        self.bot.loop.create_task(self._process_fix_names(interaction, public_msg))
+    
+    async def _process_fix_names(self, interaction: discord.Interaction, public_msg: discord.Message):
+        """Background task to fix all member names with proper display names"""
+        try:
+            guild = interaction.guild
+            if not guild:
+                await interaction.followup.send("❌ Error: Could not access server information.", ephemeral=True)
+                return
+            
+            # Statistics tracking
+            fixed_count = 0
+            skipped_no_roles = 0
+            skipped_permissions = 0
+            errors = 0
+            
+            # Get all members
+            try:
+                members = guild.members
+                if len(members) < guild.member_count:
+                    await public_msg.edit(content=f"{public_msg.content}\n📥 Fetching all server members...")
+                    members = [member async for member in guild.fetch_members(limit=None)]
+            except Exception as e:
+                logger.error(f"Error fetching members: {e}")
+                await public_msg.edit(content=f"{public_msg.content}\n❌ Error fetching server members")
+                return
+            
+            # Filter out bots
+            real_members = [member for member in members if not member.bot]
+            
+            await public_msg.edit(
+                content=f"{public_msg.content}\n"
+                f"🎯 **Processing {len(real_members)} members**\n"
+                f"Estimated time: ~{len(real_members) * 0.3 / 60:.1f} minutes"
+            )
+            
+            # Process each member
+            for i, member in enumerate(real_members):
+                try:
+                    # Generate proper nickname using display name
+                    new_nickname = generate_proper_nickname(member)
+                    
+                    # Skip if no relevant roles
+                    if new_nickname is None:
+                        skipped_no_roles += 1
+                        logger.info(f"Skipped {get_clean_display_name(member)} - no relevant roles")
+                        continue
+                    
+                    # Skip if nickname is already correct
+                    if member.nick == new_nickname:
+                        logger.info(f"Skipped {get_clean_display_name(member)} - nickname already correct")
+                        continue
+                    
+                    # Try to update the nickname
+                    try:
+                        await member.edit(nick=new_nickname, reason="Fix display name formatting")
+                        fixed_count += 1
+                        logger.info(f"Fixed nickname for {member.name} to {new_nickname}")
+                        
+                    except discord.Forbidden:
+                        skipped_permissions += 1
+                        logger.warning(f"No permission to rename {get_clean_display_name(member)}")
+                        
+                    except discord.HTTPException as e:
+                        errors += 1
+                        logger.error(f"HTTP error renaming {get_clean_display_name(member)}: {e}")
+                        
+                except Exception as e:
+                    errors += 1
+                    logger.error(f"Unexpected error processing {get_clean_display_name(member)}: {e}")
+                
+                # Add delay to avoid rate limits
+                await asyncio.sleep(0.3)
+                
+                # Update progress every 25 members
+                if (i + 1) % 25 == 0:
+                    try:
+                        progress_percentage = ((i + 1) / len(real_members)) * 100
+                        await public_msg.edit(
+                            content=f"{public_msg.content.split('🎯')[0]}🎯 **Processing {len(real_members)} members**\n"
+                            f"⏳ Progress: {i + 1}/{len(real_members)} ({progress_percentage:.1f}%)\n"
+                            f"✅ Fixed: {fixed_count} | ⏭️ Skipped: {skipped_no_roles + skipped_permissions}"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error updating progress: {e}")
+            
+            # Send final summary
+            summary = (
+                f"✅ **Display Name Fix Complete!**\n"
+                f"**Successfully Fixed:** {fixed_count}\n"
+                f"**Skipped (No Roles):** {skipped_no_roles}\n"
+                f"**Skipped (Permissions):** {skipped_permissions}\n"
+                f"**Errors:** {errors}\n"
+                f"**Total Processed:** {len(real_members)}"
+            )
+            
+            if errors > 0:
+                summary += "\n\n⚠️ Some errors occurred. Check bot logs for details."
+            
+            await public_msg.edit(content=f"{public_msg.content}\n\n{summary}")
+            
+        except Exception as e:
+            logger.error(f"Error in fix process: {e}")
+            await public_msg.edit(content=f"{public_msg.content}\n❌ Process failed: {str(e)}")
     
     @app_commands.command(name="renameall", description="Automatically rename all members based on their roles")
     async def renameall(self, interaction: discord.Interaction):
@@ -173,7 +292,7 @@ class Members(commands.Cog):
             await interaction.response.send_message("Only the server owner can use this command.", ephemeral=True)
             return
         
-        # Respond immediately to avoid timeout (ephemeral - only to user)
+        # Respond immediately to avoid timeout
         await interaction.response.send_message(
             "🔄 **Starting automatic rename process...**\n"
             "I'll post public updates in this channel as I process members.",
@@ -200,11 +319,10 @@ class Members(commands.Cog):
             skipped_permissions = 0
             errors = 0
             
-            # Get all members (fetch if needed for larger servers)
+            # Get all members
             try:
                 members = guild.members
                 if len(members) < guild.member_count:
-                    # Fetch all members if not all are cached
                     await public_msg.edit(content=f"{public_msg.content}\n📥 Fetching all server members...")
                     members = [member async for member in guild.fetch_members(limit=None)]
             except Exception as e:
@@ -225,17 +343,17 @@ class Members(commands.Cog):
             for i, member in enumerate(real_members):
                 try:
                     # Generate new nickname based on roles
-                    new_nickname = self._generate_proper_nickname(member)
+                    new_nickname = generate_proper_nickname(member)
                     
                     # Skip if no relevant roles found
                     if new_nickname is None:
                         skipped_no_roles += 1
-                        logger.info(f"Skipped {member.display_name} - no relevant roles")
+                        logger.info(f"Skipped {get_clean_display_name(member)} - no relevant roles")
                         continue
                     
                     # Skip if nickname is already correct
-                    if member.display_name == new_nickname:
-                        logger.info(f"Skipped {member.display_name} - nickname already correct")
+                    if member.nick == new_nickname:
+                        logger.info(f"Skipped {get_clean_display_name(member)} - nickname already correct")
                         continue
                     
                     # Try to update the nickname
@@ -245,17 +363,16 @@ class Members(commands.Cog):
                         logger.info(f"Renamed {member.name} to {new_nickname}")
                         
                     except discord.Forbidden:
-                        # Bot doesn't have permission to rename this user
                         skipped_permissions += 1
-                        logger.warning(f"No permission to rename {member.display_name}")
+                        logger.warning(f"No permission to rename {get_clean_display_name(member)}")
                         
                     except discord.HTTPException as e:
                         errors += 1
-                        logger.error(f"HTTP error renaming {member.display_name}: {e}")
+                        logger.error(f"HTTP error renaming {get_clean_display_name(member)}: {e}")
                         
                 except Exception as e:
                     errors += 1
-                    logger.error(f"Unexpected error processing {member.display_name}: {e}")
+                    logger.error(f"Unexpected error processing {get_clean_display_name(member)}: {e}")
                 
                 # Add delay to avoid rate limits
                 await asyncio.sleep(0.3)
@@ -326,7 +443,7 @@ class Members(commands.Cog):
             description=(
                 "Hello AfterLife members! 👋\n\n"
                 "We hope you're all doing well. To help us get to know each other better and keep our Discord server organized, "
-                "please set your in-game name for your main Dofus Touch  by clicking the button below.\n\n"
+                "please set your in-game name for your main Dofus Touch character by clicking the button below.\n\n"
                 "This will update your nickname on the server to include your guild information and character name, "
                 "making it easier for everyone to recognize each other both in-game and on Discord.\n\n"
                 "Thank you for being part of AfterLife!"
@@ -389,7 +506,7 @@ class Members(commands.Cog):
         # Respond immediately to avoid timeout
         await interaction.response.send_message(
             "🔄 **Starting nickname reset process...**\n"
-            "I'll reset all nicknames to usernames and post updates in this channel.",
+            "I'll reset all nicknames and post updates in this channel.",
             ephemeral=True
         )
         
@@ -412,7 +529,7 @@ class Members(commands.Cog):
             skipped_count = 0
             errors = 0
             
-            # Get all members (fetch if needed for larger servers)
+            # Get all members
             try:
                 members = guild.members
                 if len(members) < guild.member_count:
@@ -448,15 +565,15 @@ class Members(commands.Cog):
                         
                     except discord.Forbidden:
                         skipped_count += 1
-                        logger.warning(f"No permission to reset {member.display_name}")
+                        logger.warning(f"No permission to reset {get_clean_display_name(member)}")
                         
                     except discord.HTTPException as e:
                         errors += 1
-                        logger.error(f"HTTP error resetting {member.display_name}: {e}")
+                        logger.error(f"HTTP error resetting {get_clean_display_name(member)}: {e}")
                         
                 except Exception as e:
                     errors += 1
-                    logger.error(f"Unexpected error processing {member.display_name}: {e}")
+                    logger.error(f"Unexpected error processing {get_clean_display_name(member)}: {e}")
                 
                 # Add delay to avoid rate limits
                 await asyncio.sleep(0.3)
@@ -490,37 +607,6 @@ class Members(commands.Cog):
         except Exception as e:
             logger.error(f"Error in reset process: {e}")
             await public_msg.edit(content=f"{public_msg.content}\n❌ Process failed: {str(e)}")
-            
-    def _generate_proper_nickname(self, member, in_game_name=None):
-        """Generate properly formatted nickname: {role} {guild} display_name"""
-        # Get role prefix
-        prefix = ""
-        if discord.utils.get(member.roles, id=GUILD_LEADER_ROLE_ID):
-            prefix = "{GL} "
-        elif discord.utils.get(member.roles, id=SECOND_IN_COMMAND_ROLE_ID):
-            prefix = "{SIC} "
-            
-        # Get guild tag
-        guild_tag = ""
-        for role_id, name in GUILD_ROLES.items():
-            if discord.utils.get(member.roles, id=role_id):
-                guild_tag = f"{{{name}}} "
-                break
-                
-        # Use provided name or display name
-        base_name = in_game_name.strip() if in_game_name else member.display_name or member.name
-        
-        # Clean the base name by removing existing tags
-        tags_to_remove = ["{GL}", "{SIC}"] + [f"{{{name}}}" for name in GUILD_ROLES.values()]
-        for tag in tags_to_remove:
-            base_name = base_name.replace(tag, "").strip()
-        
-        # Build and clean nickname
-        nickname = f"{prefix}{guild_tag}{base_name}"
-        nickname = " ".join(nickname.split())  # Clean extra spaces
-        
-        # Truncate if needed
-        return nickname[:32] if len(nickname) > 32 else nickname
 
 async def setup(bot):
     await bot.add_cog(Members(bot))
