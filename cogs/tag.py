@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import logging
 
 logger = logging.getLogger(__name__)
@@ -117,45 +118,46 @@ class TagCog(commands.Cog):
             except Exception as e:
                 logger.exception(f"Error changing nickname of {second_server_member}: {e}")
     
-    @commands.command(name='sync_member')
-    @commands.has_permissions(administrator=True)
-    async def manual_sync_member(self, ctx, member: discord.Member = None):
+    @app_commands.command(name="sync_member", description="Manually sync a specific member with their first server profile")
+    @app_commands.describe(member="The member to sync (leave empty to sync yourself)")
+    @app_commands.default_permissions(administrator=True)
+    async def manual_sync_member(self, interaction: discord.Interaction, member: discord.Member = None):
         """Manually sync a specific member (admin only)"""
-        if ctx.guild.id != self.second_server_id:
-            await ctx.send("This command can only be used in the second server.")
+        if interaction.guild.id != self.second_server_id:
+            await interaction.response.send_message("This command can only be used in the second server.", ephemeral=True)
             return
         
         if member is None:
-            member = ctx.author
+            member = interaction.user
         
         first_server_member = await self.get_member_from_first_server(member.id)
         
         if not first_server_member:
-            await ctx.send(f"{member.mention} is not found in the first server.")
+            await interaction.response.send_message(f"{member.mention} is not found in the first server.", ephemeral=True)
             return
         
-        await ctx.send(f"Starting manual sync for {member.mention}...")
+        await interaction.response.send_message(f"Starting manual sync for {member.mention}...")
         
         # Sync roles and nickname
         await self.sync_member_roles(member, first_server_member)
         await self.sync_member_nickname(member, first_server_member)
         
-        await ctx.send(f"✅ Successfully synced {member.mention} with their first server profile!")
+        await interaction.followup.send(f"✅ Successfully synced {member.mention} with their first server profile!")
     
-    @commands.command(name='sync_all')
-    @commands.has_permissions(administrator=True)
-    async def sync_all_members(self, ctx):
+    @app_commands.command(name="sync_all", description="Sync all members in the second server with their first server profiles")
+    @app_commands.default_permissions(administrator=True)
+    async def sync_all_members(self, interaction: discord.Interaction):
         """Sync all members in the second server (admin only)"""
-        if ctx.guild.id != self.second_server_id:
-            await ctx.send("This command can only be used in the second server.")
+        if interaction.guild.id != self.second_server_id:
+            await interaction.response.send_message("This command can only be used in the second server.", ephemeral=True)
             return
         
-        await ctx.send("Starting bulk sync... This may take a while.")
+        await interaction.response.send_message("Starting bulk sync... This may take a while.")
         
         synced_count = 0
         failed_count = 0
         
-        for member in ctx.guild.members:
+        for member in interaction.guild.members:
             if member.bot:
                 continue
                 
@@ -170,7 +172,7 @@ class TagCog(commands.Cog):
                     logger.exception(f"Failed to sync {member}: {e}")
                     failed_count += 1
         
-        await ctx.send(f"✅ Bulk sync completed!\n"
+        await interaction.followup.send(f"✅ Bulk sync completed!\n"
                       f"Synced: {synced_count} members\n"
                       f"Failed: {failed_count} members")
     
