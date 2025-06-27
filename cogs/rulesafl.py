@@ -85,8 +85,8 @@ class RulesAFL(commands.Cog):
             logger.error(f"Error reading rules file for {language}: {e}")
             return None
 
-    @commands.slash_command(name="setup_verification", description="Setup language verification buttons")
-    @commands.has_permissions(administrator=True)
+    @discord.slash_command(name="setup_verification", description="Setup language verification buttons")
+    @discord.default_permissions(administrator=True)
     async def setup_verification(self, ctx):
         """Slash command to setup the verification buttons in a channel"""
         try:
