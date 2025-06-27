@@ -39,14 +39,14 @@ class WelcomeAFL(commands.Cog):
                     
                     # Add member info
                     embed.add_field(
-                        name="📊 Member Info",
+                        name=" Member Info",
                         value=f"**Account Created:** {member.created_at.strftime('%B %d, %Y')}\n**Member #{member.guild.member_count}**",
                         inline=True
                     )
                     
                     # Add server info
                     embed.add_field(
-                        name="🎯 Quick Start",
+                        name=" Quick Start",
                         value="• Read the rules\n• Introduce yourself\n• Check announcements\n• Join conversations!",
                         inline=True
                     )
