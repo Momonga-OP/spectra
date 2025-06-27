@@ -119,30 +119,7 @@ class RulesAFL(commands.Cog):
             else:
                 await ctx.reply("An error occurred while setting up verification.", ephemeral=True)
 
-    @commands.Cog.listener()
-    async def on_member_join(self, member):
-        """Send language selection message when a new member joins"""
-        try:
-            # Create language selection view
-            view = LanguageSelectionView(self)
-            
-            # Create embed for language selection
-            embed = discord.Embed(
-                title="🌍 Welcome! | ¡Bienvenido! | Bienvenue!",
-                description="Please choose your preferred language to continue:\n"
-                           "Por favor, elige tu idioma preferido para continuar:\n"
-                           "Veuillez choisir votre langue préférée pour continuer:",
-                color=0x00ff00
-            )
-            
-            # Send DM to the new member
-            await member.send(embed=embed, view=view)
-            
-        except discord.Forbidden:
-            # If DM fails, try to find a welcome channel
-            logger.warning(f"Could not send DM to {member}. DMs might be disabled.")
-        except Exception as e:
-            logger.error(f"Error in on_member_join: {e}")
+    # DM functionality has been removed - no on_member_join event listener
 
 class PersistentLanguageSelectionView(discord.ui.View):
     def __init__(self, cog):
@@ -199,71 +176,6 @@ class PersistentRulesAgreementView(discord.ui.View):
         texts = self.cog.language_texts[language]
         self.agree_button.label = texts['agree_button']
         self.agree_button.custom_id = f'agree_{language.lower()}'
-
-    @discord.ui.button(label='I Agree', style=discord.ButtonStyle.success, emoji='✅')
-    async def agree_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Handle rules agreement and show name input modal"""
-        try:
-            modal = InGameNameModal(self.cog, self.language)
-            await interaction.response.send_modal(modal)
-        except Exception as e:
-            logger.error(f"Error in agree_button: {e}")
-            await interaction.response.send_message("An error occurred. Please try again.", ephemeral=True)
-
-class LanguageSelectionView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)  # 5 minute timeout for DM version
-        self.cog = cog
-
-    @discord.ui.button(label='English', style=discord.ButtonStyle.primary, emoji='🇺🇸')
-    async def english_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_language_selection(interaction, 'EN')
-
-    @discord.ui.button(label='Español', style=discord.ButtonStyle.primary, emoji='🇪🇸')
-    async def spanish_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_language_selection(interaction, 'ES')
-
-    @discord.ui.button(label='Français', style=discord.ButtonStyle.primary, emoji='🇫🇷')
-    async def french_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_language_selection(interaction, 'FR')
-
-    async def handle_language_selection(self, interaction: discord.Interaction, language):
-        """Handle language selection and show rules"""
-        try:
-            # Read rules file
-            rules_content = self.cog.read_rules_file(language)
-            
-            if rules_content is None:
-                error_msg = self.cog.language_texts[language]['error_reading_rules']
-                await interaction.response.send_message(error_msg, ephemeral=True)
-                return
-
-            # Create rules embed
-            texts = self.cog.language_texts[language]
-            embed = discord.Embed(
-                title=texts['rules_title'],
-                description=rules_content,
-                color=0xff9900
-            )
-            
-            # Create agreement view (non-persistent for DM)
-            agreement_view = RulesAgreementView(self.cog, language)
-            
-            await interaction.response.send_message(embed=embed, view=agreement_view, ephemeral=True)
-            
-        except Exception as e:
-            logger.error(f"Error in handle_language_selection: {e}")
-            await interaction.response.send_message("An error occurred. Please try again.", ephemeral=True)
-
-class RulesAgreementView(discord.ui.View):
-    def __init__(self, cog, language):
-        super().__init__(timeout=300)  # 5 minute timeout for DM version
-        self.cog = cog
-        self.language = language
-        
-        # Set button label based on language
-        texts = self.cog.language_texts[language]
-        self.agree_button.label = texts['agree_button']
 
     @discord.ui.button(label='I Agree', style=discord.ButtonStyle.success, emoji='✅')
     async def agree_button(self, interaction: discord.Interaction, button: discord.ui.Button):
