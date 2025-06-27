@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import app_commands  # Add this import
+from discord import app_commands
 import os
 import logging
 
@@ -86,29 +86,37 @@ class RulesAFL(commands.Cog):
             logger.error(f"Error reading rules file for {language}: {e}")
             return None
 
-@app_commands.command(name="setup_verification", description="Setup language verification buttons")
-@app_commands.default_permissions(administrator=True)
-async def setup_verification(self, interaction: discord.Interaction):
-    """Slash command to setup the verification buttons in a channel"""
-    try:
-        # Create persistent language selection view
-        view = PersistentLanguageSelectionView(self)
-        
-        # Create embed for language selection
-        embed = discord.Embed(
-            title="🌍 Welcome! | ¡Bienvenido! | Bienvenue!",
-            description="Please choose your preferred language to continue:\n"
-                       "Por favor, elige tu idioma preferido para continuar:\n"
-                       "Veuillez choisir votre langue préférée pour continuer:",
-            color=0x00ff00
-        )
-        
-        # Send the persistent message in the channel
-        await interaction.response.send_message(embed=embed, view=view)
-        
-    except Exception as e:
-        logger.error(f"Error in setup_verification: {e}")
-        await interaction.response.send_message("An error occurred while setting up verification.", ephemeral=True)
+    @commands.hybrid_command(name="setup_verification", description="Setup language verification buttons")
+    @app_commands.default_permissions(administrator=True)
+    async def setup_verification(self, ctx):
+        """Slash command to setup the verification buttons in a channel"""
+        try:
+            # Create persistent language selection view
+            view = PersistentLanguageSelectionView(self)
+            
+            # Create embed for language selection
+            embed = discord.Embed(
+                title="🌍 Welcome! | ¡Bienvenido! | Bienvenue!",
+                description="Please choose your preferred language to continue:\n"
+                           "Por favor, elige tu idioma preferido para continuar:\n"
+                           "Veuillez choisir votre langue préférée pour continuer:",
+                color=0x00ff00
+            )
+            
+            # Send the persistent message in the channel
+            await ctx.send(embed=embed, view=view)
+            
+            if isinstance(ctx, discord.Interaction):
+                await ctx.response.send_message("Verification setup complete!", ephemeral=True)
+            else:
+                await ctx.reply("Verification setup complete!", ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in setup_verification: {e}")
+            if isinstance(ctx, discord.Interaction):
+                await ctx.response.send_message("An error occurred while setting up verification.", ephemeral=True)
+            else:
+                await ctx.reply("An error occurred while setting up verification.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -141,15 +149,15 @@ class PersistentLanguageSelectionView(discord.ui.View):
         super().__init__(timeout=None)  # Persistent view, no timeout
         self.cog = cog
 
-    @discord.ui.button(label='Choose your language', style=discord.ButtonStyle.primary, emoji='🇺🇸', custom_id='lang_en')
+    @discord.ui.button(label='English', style=discord.ButtonStyle.primary, emoji='🇺🇸', custom_id='lang_en')
     async def english_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_language_selection(interaction, 'EN')
 
-    @discord.ui.button(label='Elige tu idioma', style=discord.ButtonStyle.primary, emoji='🇪🇸', custom_id='lang_es')
+    @discord.ui.button(label='Español', style=discord.ButtonStyle.primary, emoji='🇪🇸', custom_id='lang_es')
     async def spanish_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_language_selection(interaction, 'ES')
 
-    @discord.ui.button(label='Choisissez votre langue', style=discord.ButtonStyle.primary, emoji='🇫🇷', custom_id='lang_fr')
+    @discord.ui.button(label='Français', style=discord.ButtonStyle.primary, emoji='🇫🇷', custom_id='lang_fr')
     async def french_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_language_selection(interaction, 'FR')
 
@@ -207,15 +215,15 @@ class LanguageSelectionView(discord.ui.View):
         super().__init__(timeout=300)  # 5 minute timeout for DM version
         self.cog = cog
 
-    @discord.ui.button(label='Choose your language', style=discord.ButtonStyle.primary, emoji='🇺🇸')
+    @discord.ui.button(label='English', style=discord.ButtonStyle.primary, emoji='🇺🇸')
     async def english_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_language_selection(interaction, 'EN')
 
-    @discord.ui.button(label='Elige tu idioma', style=discord.ButtonStyle.primary, emoji='🇪🇸')
+    @discord.ui.button(label='Español', style=discord.ButtonStyle.primary, emoji='🇪🇸')
     async def spanish_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_language_selection(interaction, 'ES')
 
-    @discord.ui.button(label='Choisissez votre langue', style=discord.ButtonStyle.primary, emoji='🇫🇷')
+    @discord.ui.button(label='Français', style=discord.ButtonStyle.primary, emoji='🇫🇷')
     async def french_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_language_selection(interaction, 'FR')
 
@@ -340,7 +348,4 @@ class InGameNameModal(discord.ui.Modal):
             await interaction.response.send_message(texts['verification_failed'], ephemeral=True)
 
 async def setup(bot):
-    cog = RulesAFL(bot)
-    await bot.add_cog(cog)
-    # Sync the commands if needed
-    await bot.tree.sync()
+    await bot.add_cog(RulesAFL(bot))
