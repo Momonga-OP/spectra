@@ -35,7 +35,7 @@ class WelcomeAFL(commands.Cog):
                     )
                     
                     # Set the image from local path
-                    embed.set_image(url="attachment://welcome_image.png")
+                    embed.set_image(url="attachment://AFLbanner.png")
                     
                     # Add member info
                     embed.add_field(
