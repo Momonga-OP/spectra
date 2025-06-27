@@ -9,11 +9,6 @@ logger = logging.getLogger(__name__)
 class RulesAFL(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Register persistent views on cog initialization
-        self.bot.add_view(PersistentLanguageSelectionView(self))
-        self.bot.add_view(PersistentRulesAgreementView(self, 'EN'))
-        self.bot.add_view(PersistentRulesAgreementView(self, 'ES'))
-        self.bot.add_view(PersistentRulesAgreementView(self, 'FR'))
         
         # Language role IDs
         self.language_roles = {
@@ -29,7 +24,7 @@ class RulesAFL(commands.Cog):
             'FR': './rules/Rules and Regulations FR (Formatted).txt'
         }
         
-        # Language texts
+        # Language texts - must be defined BEFORE initializing views
         self.language_texts = {
             'EN': {
                 'welcome_title': '🌍 Welcome to the Alliance Server!',
@@ -71,6 +66,12 @@ class RulesAFL(commands.Cog):
                 'verification_failed': '❌ La vérification a échoué. Veuillez réessayer ou contacter un administrateur.'
             }
         }
+
+        # Register persistent views AFTER all attributes are initialized
+        self.bot.add_view(PersistentLanguageSelectionView(self))
+        self.bot.add_view(PersistentRulesAgreementView(self, 'EN'))
+        self.bot.add_view(PersistentRulesAgreementView(self, 'ES'))
+        self.bot.add_view(PersistentRulesAgreementView(self, 'FR'))
 
     def read_rules_file(self, language):
         """Read rules from the specified language file"""
@@ -140,7 +141,6 @@ class RulesAFL(commands.Cog):
         except discord.Forbidden:
             # If DM fails, try to find a welcome channel
             logger.warning(f"Could not send DM to {member}. DMs might be disabled.")
-            # You can add logic here to send to a specific channel if needed
         except Exception as e:
             logger.error(f"Error in on_member_join: {e}")
 
@@ -306,8 +306,6 @@ class InGameNameModal(discord.ui.Modal):
             guild = interaction.guild
             
             if guild is None:
-                # If this is a DM, get the guild from bot's guilds
-                # You might need to specify which guild to use if bot is in multiple guilds
                 guild = discord.utils.get(self.cog.bot.guilds, id=interaction.guild_id) if interaction.guild_id else None
                 if guild:
                     member = guild.get_member(interaction.user.id)
