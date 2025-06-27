@@ -19,9 +19,9 @@ class RulesAFL(commands.Cog):
         
         # File paths for rules
         self.rules_files = {
-            'EN': './rules/Rules and Regulations EN (Formatted).txt',
-            'ES': './rules/Rules and Regulations ES (Formatted).txt',
-            'FR': './rules/Rules and Regulations FR (Formatted).txt'
+            'EN': './Rules and Regulations EN (Formatted).txt',
+            'ES': './Rules and Regulations ES (Formatted).txt',
+            'FR': './Rules and Regulations FR (Formatted).txt'
         }
         
         # Language texts - must be defined BEFORE initializing views
