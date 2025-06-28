@@ -73,4 +73,13 @@ class InviteTracker(commands.Cog):
             await notification_channel.send(f"An invite link (Code: {invite.code}) was deleted.")
 
 async def setup(bot):
+    # Check if the cog is already loaded and remove it first
+    if 'InviteTracker' in [cog.__class__.__name__ for cog in bot.cogs.values()]:
+        await bot.remove_cog('InviteTracker')
+    
     await bot.add_cog(InviteTracker(bot))
+
+async def teardown(bot):
+    # Optional: Clean up when the cog is unloaded
+    if 'InviteTracker' in [cog.__class__.__name__ for cog in bot.cogs.values()]:
+        await bot.remove_cog('InviteTracker')
