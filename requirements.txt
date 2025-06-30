@@ -22,3 +22,4 @@ onnxruntime
 asyncpg
 pyttsx3
 pyfiglet
+PyPDF2
