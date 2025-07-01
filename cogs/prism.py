@@ -153,19 +153,22 @@ class PrismCog(commands.Cog):
         upcoming_avas.sort(key=lambda x: x['countdown'])
         return upcoming_avas
     
-    async def create_ava_events(self):
-        """Create Discord events for upcoming AVAs"""
-        if not self.bot.guilds:
+    async def create_ava_events(self, guild=None):
+        """Create Discord events for upcoming AVAs in specified guild or all guilds"""
+        # If guild is specified, only create events in that guild
+        guilds_to_process = [guild] if guild else self.bot.guilds
+        
+        if not guilds_to_process:
             logger.warning("No guilds available to create events")
             return
         
         # Get upcoming weakened AVAs for next 24 hours
         upcoming_avas = self.get_next_24h_avas(weakened_only=True)
         
-        for guild in self.bot.guilds:
+        for target_guild in guilds_to_process:
             try:
                 # Get existing events to avoid duplicates
-                existing_events = guild.scheduled_events
+                existing_events = target_guild.scheduled_events
                 
                 for ava in upcoming_avas:
                     prism = ava['prism']
@@ -174,8 +177,8 @@ class PrismCog(commands.Cog):
                     position = prism.get('position', '')
                     alliance = prism.get('alliance', '')
                     
-                    # Create unique event identifier
-                    event_id = f"{prism_name}_{ava_datetime.strftime('%Y%m%d_%H%M')}"
+                    # Create unique event identifier (include guild ID to avoid conflicts)
+                    event_id = f"{target_guild.id}_{prism_name}_{ava_datetime.strftime('%Y%m%d_%H%M')}"
                     
                     # Skip if we already created this event
                     if event_id in self.created_events:
@@ -225,7 +228,7 @@ class PrismCog(commands.Cog):
                     
                     try:
                         # Create the scheduled event
-                        event = await guild.create_scheduled_event(
+                        event = await target_guild.create_scheduled_event(
                             name=event_name,
                             description=description,
                             start_time=ava_datetime,
@@ -236,15 +239,15 @@ class PrismCog(commands.Cog):
                         )
                         
                         self.created_events.add(event_id)
-                        logger.info(f"Created event for {prism_name} AVA at {ava_datetime.strftime('%H:%M %d/%m/%Y')} in guild {guild.name}")
+                        logger.info(f"Created event for {prism_name} AVA at {ava_datetime.strftime('%H:%M %d/%m/%Y')} in guild {target_guild.name}")
                         
                     except discord.Forbidden:
-                        logger.warning(f"No permission to create events in guild {guild.name}")
+                        logger.warning(f"No permission to create events in guild {target_guild.name}")
                     except discord.HTTPException as e:
-                        logger.error(f"Failed to create event in guild {guild.name}: {e}")
+                        logger.error(f"Failed to create event in guild {target_guild.name}: {e}")
                     
             except Exception as e:
-                logger.exception(f"Error creating events for guild {guild.name}: {e}")
+                logger.exception(f"Error creating events for guild {target_guild.name}: {e}")
     
     @app_commands.command(name="create_ava_events", description="Create events for upcoming weakened prism AVAs (manual only)")
     async def create_ava_events_command(self, interaction: discord.Interaction):
@@ -267,12 +270,12 @@ class PrismCog(commands.Cog):
                 await interaction.followup.send(embed=embed)
                 return
             
-            # Create events
-            await self.create_ava_events()
+            # Create events ONLY in the guild where the command was invoked
+            await self.create_ava_events(guild=interaction.guild)
             
             embed = discord.Embed(
                 title="⚔️ AVA Events Created",
-                description=f"Successfully processed {len(upcoming_avas)} weakened prism AVAs for the next 24 hours.\n\n**These prisms are ready for AVA - they have been attacked and the timer has passed!**",
+                description=f"Successfully processed {len(upcoming_avas)} weakened prism AVAs for the next 24 hours in **{interaction.guild.name}**.\n\n**These prisms are ready for AVA - they have been attacked and the timer has passed!**",
                 color=0xff6b35
             )
             
