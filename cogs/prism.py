@@ -51,13 +51,18 @@ class PrismCog(commands.Cog):
         lines = csv_content.strip().split('\n')
         data = []
         
-        # Skip header row if it exists
-        for i, line in enumerate(lines):
-            if i == 0:
-                # Check if first line looks like headers
-                if any(header in line.lower() for header in ['prism', 'server', 'time', 'ava', 'alliance']):
-                    continue
-            
+        logger.info(f"CSV Content (first 3 lines):")
+        for i, line in enumerate(lines[:3]):
+            logger.info(f"Line {i}: {line}")
+        
+        # Skip header row - CSV structure: TIME,AREA - ENG,AREA - ES,%POS%,DATE,ALLIANCE,STATUS
+        start_index = 1 if lines else 0
+        logger.info(f"Header: {lines[0] if lines else 'No data'}")
+        
+        for i, line in enumerate(lines[start_index:], start_index):
+            if not line.strip():  # Skip empty lines
+                continue
+                
             # Parse CSV line (handling quoted fields)
             fields = []
             current_field = ""
@@ -78,15 +83,23 @@ class PrismCog(commands.Cog):
             # Clean up fields
             fields = [field.strip('"').strip() for field in fields]
             
-            if len(fields) >= 3 and fields[0]:  # Minimum required fields and non-empty prism name
-                data.append({
-                    'prism_name': fields[0] if len(fields) > 0 else '',
-                    'server': fields[1] if len(fields) > 1 else '',
-                    'ava_time': fields[2] if len(fields) > 2 else '',
-                    'status': fields[3] if len(fields) > 3 else '',
-                    'alliance': fields[4] if len(fields) > 4 else ''
-                })
+            if len(fields) >= 6 and fields[0] and fields[1]:  # Need at least time and prism name
+                # Parse the data according to actual CSV structure
+                # CSV: TIME,AREA - ENG,AREA - ES,%POS%,DATE,ALLIANCE,STATUS
+                parsed_data = {
+                    'ava_time': fields[0],           # TIME (e.g., "00:00")
+                    'prism_name': fields[1],         # AREA - ENG (English prism name)
+                    'prism_name_es': fields[2] if len(fields) > 2 else '',  # AREA - ES (Spanish name)
+                    'position': fields[3] if len(fields) > 3 else '',       # %POS% (coordinates)
+                    'date': fields[4] if len(fields) > 4 else '',           # DATE
+                    'alliance': fields[5] if len(fields) > 5 else '',       # ALLIANCE
+                    'status': fields[6] if len(fields) > 6 else '',         # STATUS
+                    'server': 'Dofus Touch'  # All entries are from the same server based on the data
+                }
+                data.append(parsed_data)
+                logger.info(f"Added data: {parsed_data['prism_name']} at {parsed_data['ava_time']} - {parsed_data['status']}")
         
+        logger.info(f"Total parsed entries: {len(data)}")
         return data
     
     def get_next_48h_avas(self):
@@ -94,34 +107,51 @@ class PrismCog(commands.Cog):
         now = datetime.now(self.paris_tz)
         upcoming_avas = []
         
-        # Get AVAs for the next 3 days to ensure we cover 48 hours
-        for day_offset in range(3):
-            check_date = now + timedelta(days=day_offset)
+        for prism in self.prism_data:
+            ava_time_str = prism.get('ava_time', '').strip()
+            date_str = prism.get('date', '').strip()
             
-            for prism in self.prism_data:
-                if prism.get('ava_time'):
+            if not ava_time_str:
+                continue
+                
+            try:
+                # Parse AVA time (format: "HH:MM")
+                time_match = re.match(r'(\d{1,2}):(\d{2})', ava_time_str)
+                if not time_match:
+                    continue
+                    
+                hour, minute = map(int, time_match.groups())
+                
+                # Parse date if available (format: "DD/MM/YYYY")
+                if date_str:
                     try:
-                        # Parse AVA time (assuming format like "20:30" or "8:30 PM")
-                        time_str = prism['ava_time'].strip()
-                        
-                        # Handle different time formats
-                        time_match = re.match(r'(\d{1,2}):(\d{2})', time_str)
-                        if time_match:
-                            hour, minute = map(int, time_match.groups())
-                            
-                            # Create datetime for this day's AVA
-                            ava_datetime = check_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                            
-                            # Only include if it's within 48 hours and in the future
-                            time_until = ava_datetime - now
-                            if timedelta(minutes=1) < time_until <= timedelta(hours=48):
-                                upcoming_avas.append({
-                                    'prism': prism,
-                                    'ava_datetime': ava_datetime,
-                                    'countdown': time_until
-                                })
-                    except Exception as e:
-                        logger.warning(f"Error parsing AVA time for {prism.get('prism_name')}: {e}")
+                        # Parse date string "02/07/2025" -> day/month/year
+                        date_parts = date_str.split('/')
+                        if len(date_parts) == 3:
+                            day, month, year = map(int, date_parts)
+                            ava_date = datetime(year, month, day, hour, minute, 0, tzinfo=self.paris_tz)
+                        else:
+                            continue
+                    except ValueError:
+                        logger.warning(f"Invalid date format for {prism.get('prism_name')}: {date_str}")
+                        continue
+                else:
+                    # If no date specified, assume it's today (this shouldn't happen with your data)
+                    ava_date = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                
+                # Calculate time until AVA
+                time_until = ava_date - now
+                
+                # Only include if it's within 48 hours and in the future (allow 1 minute past for ongoing AVAs)
+                if timedelta(minutes=-1) < time_until <= timedelta(hours=48):
+                    upcoming_avas.append({
+                        'prism': prism,
+                        'ava_datetime': ava_date,
+                        'countdown': time_until
+                    })
+                    
+            except Exception as e:
+                logger.warning(f"Error parsing AVA time for {prism.get('prism_name')}: {e}")
         
         # Sort by soonest AVA first
         upcoming_avas.sort(key=lambda x: x['countdown'])
@@ -197,12 +227,18 @@ class PrismCog(commands.Cog):
                     current_day = ava_day
                 
                 # Format AVA entry
-                status_emoji = "✅" if prism.get('status', '').lower() in ['controlled', 'yes', '1'] else "❌"
-                server = prism.get('server', 'Unknown')
+                status_emoji = "⚠️" if prism.get('status', '').lower() == 'weakened' else "✅"
+                status_text = prism.get('status', 'Unknown')
                 prism_name = prism.get('prism_name', 'Unknown')
                 ava_time = ava_datetime.strftime('%H:%M')
+                position = prism.get('position', '')
                 
-                ava_line = f"{status_emoji} **{prism_name}** ({server}) - `{ava_time}` - ⏰ {countdown}"
+                # Create the AVA line with status and position
+                ava_line = f"{status_emoji} **{prism_name}** - `{ava_time}` - ⏰ {countdown}"
+                if position:
+                    ava_line += f" - 📍 {position}"
+                ava_line += f" - *{status_text}*"
+                
                 ava_lines.append(ava_line)
             
             # Split into multiple fields if too long
