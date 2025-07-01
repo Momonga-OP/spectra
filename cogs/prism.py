@@ -102,12 +102,16 @@ class PrismCog(commands.Cog):
         logger.info(f"Total parsed entries: {len(data)}")
         return data
     
-    def get_next_48h_avas(self):
-        """Calculate AVA times for the next 48 hours"""
+    def get_next_48h_avas(self, weakened_only=True):
+        """Calculate AVA times for the next 48 hours, optionally filter for weakened only"""
         now = datetime.now(self.paris_tz)
         upcoming_avas = []
         
         for prism in self.prism_data:
+            # Filter for weakened prisms if requested
+            if weakened_only and prism.get('status', '').lower() != 'weakened':
+                continue
+                
             ava_time_str = prism.get('ava_time', '').strip()
             date_str = prism.get('date', '').strip()
             
@@ -179,12 +183,28 @@ class PrismCog(commands.Cog):
         day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         return day_names[date.weekday()]
     
+    def calculate_embed_size(self, embed):
+        """Calculate the total size of an embed in characters"""
+        size = 0
+        if embed.title:
+            size += len(embed.title)
+        if embed.description:
+            size += len(embed.description)
+        for field in embed.fields:
+            if field.name:
+                size += len(field.name)
+            if field.value:
+                size += len(field.value)
+        if embed.footer and embed.footer.text:
+            size += len(embed.footer.text)
+        return size
+    
     def create_ava_embed(self):
-        """Create an embed with AVA information for next 48h"""
+        """Create an embed with AVA information for next 48h (weakened prisms only)"""
         embed = discord.Embed(
-            title="🏰 AFL Alliance - AVA Schedule",
-            description="Alliance vs Alliance schedule for the next 48 hours",
-            color=0x9932cc,
+            title="⚠️ AFL Alliance - Weakened Prisms AVA Schedule",
+            description="Weakened prism AVA schedule for the next 48 hours",
+            color=0xff6b35,  # Orange color for weakened status
             timestamp=datetime.utcnow()
         )
         
@@ -198,14 +218,15 @@ class PrismCog(commands.Cog):
         
         # Current time information
         paris_time = datetime.now(self.paris_tz)
+        time_field = f"`{paris_time.strftime('%H:%M:%S')}` - {self.get_day_name(paris_time)}, {paris_time.strftime('%d/%m/%Y')}"
         embed.add_field(
             name="🕐 Current Dofus Touch Time (Paris)", 
-            value=f"`{paris_time.strftime('%H:%M:%S')}` - {self.get_day_name(paris_time)}, {paris_time.strftime('%d/%m/%Y')}", 
+            value=time_field, 
             inline=False
         )
         
-        # Get upcoming AVAs for next 48 hours
-        upcoming_avas = self.get_next_48h_avas()
+        # Get upcoming weakened AVAs for next 48 hours
+        upcoming_avas = self.get_next_48h_avas(weakened_only=True)
         
         if upcoming_avas:
             ava_lines = []
@@ -226,82 +247,85 @@ class PrismCog(commands.Cog):
                     ava_lines.append(f"📅 **{day_name}, {ava_day}**")
                     current_day = ava_day
                 
-                # Format AVA entry
-                status_emoji = "⚠️" if prism.get('status', '').lower() == 'weakened' else "✅"
-                status_text = prism.get('status', 'Unknown')
+                # Format AVA entry (simplified for weakened prisms)
                 prism_name = prism.get('prism_name', 'Unknown')
                 ava_time = ava_datetime.strftime('%H:%M')
                 position = prism.get('position', '')
                 
-                # Create the AVA line with status and position
-                ava_line = f"{status_emoji} **{prism_name}** - `{ava_time}` - ⏰ {countdown}"
+                # Create the AVA line
+                ava_line = f"⚠️ **{prism_name}** - `{ava_time}` - ⏰ {countdown}"
                 if position:
                     ava_line += f" - 📍 {position}"
-                ava_line += f" - *{status_text}*"
                 
                 ava_lines.append(ava_line)
             
-            # Split into multiple fields if too long
-            ava_text = "\n".join(ava_lines)
+            # Build fields while checking size limits
+            current_field_lines = []
+            field_count = 1
+            MAX_FIELD_SIZE = 1024
+            MAX_EMBED_SIZE = 5500  # Leave some buffer under 6000
             
-            if len(ava_text) <= 1024:
-                embed.add_field(
-                    name="⚔️ Upcoming AVAs", 
-                    value=ava_text, 
-                    inline=False
-                )
-            else:
-                # Split into multiple fields
-                field_count = 1
-                current_field = []
-                current_length = 0
+            for line in ava_lines:
+                # Check if adding this line would exceed field size
+                test_field = "\n".join(current_field_lines + [line])
                 
-                for line in ava_lines:
-                    line_length = len(line) + 1  # +1 for newline
-                    
-                    if current_length + line_length > 1020 and current_field:  # Leave some margin
-                        # Add current field
-                        field_name = f"⚔️ Upcoming AVAs (Part {field_count})" if field_count > 1 else "⚔️ Upcoming AVAs"
-                        embed.add_field(
-                            name=field_name,
-                            value="\n".join(current_field),
-                            inline=False
-                        )
-                        
-                        # Start new field
-                        current_field = [line]
-                        current_length = line_length
-                        field_count += 1
-                    else:
-                        current_field.append(line)
-                        current_length += line_length
-                
-                # Add remaining field
-                if current_field:
-                    field_name = f"⚔️ Upcoming AVAs (Part {field_count})" if field_count > 1 else "⚔️ Upcoming AVAs"
+                if len(test_field) > MAX_FIELD_SIZE and current_field_lines:
+                    # Add current field and start a new one
+                    field_name = f"⚔️ Weakened Prisms (Part {field_count})" if field_count > 1 else "⚔️ Weakened Prisms"
                     embed.add_field(
                         name=field_name,
-                        value="\n".join(current_field),
+                        value="\n".join(current_field_lines),
+                        inline=False
+                    )
+                    
+                    # Check if we're approaching embed size limit
+                    if self.calculate_embed_size(embed) > MAX_EMBED_SIZE:
+                        # Remove the last field and add a truncation notice
+                        embed.remove_field(-1)
+                        embed.add_field(
+                            name="📋 Note",
+                            value="Some entries were truncated due to Discord's size limits. Use `/ava_panel` again for updated information.",
+                            inline=False
+                        )
+                        break
+                    
+                    current_field_lines = [line]
+                    field_count += 1
+                else:
+                    current_field_lines.append(line)
+            
+            # Add remaining field if we haven't hit size limits
+            if current_field_lines and self.calculate_embed_size(embed) < MAX_EMBED_SIZE:
+                field_name = f"⚔️ Weakened Prisms (Part {field_count})" if field_count > 1 else "⚔️ Weakened Prisms"
+                test_embed_size = self.calculate_embed_size(embed) + len(field_name) + len("\n".join(current_field_lines))
+                
+                if test_embed_size <= MAX_EMBED_SIZE:
+                    embed.add_field(
+                        name=field_name,
+                        value="\n".join(current_field_lines),
                         inline=False
                     )
         else:
             embed.add_field(
-                name="😴 No Upcoming AVAs", 
-                value="No AVA schedules found for the next 48 hours.", 
+                name="✅ No Weakened Prisms", 
+                value="No weakened prisms found for the next 48 hours. Great news!", 
                 inline=False
             )
         
         # Add footer with update info
+        footer_text = "Only showing WEAKENED prisms • "
         if self.last_update:
-            embed.set_footer(text=f"Last updated: {self.last_update.strftime('%H:%M:%S')} • Data refreshes every 5 minutes")
+            footer_text += f"Last updated: {self.last_update.strftime('%H:%M:%S')} • Data refreshes every 5 minutes"
         else:
-            embed.set_footer(text="Data is loading...")
+            footer_text += "Data is loading..."
+        
+        embed.set_footer(text=footer_text)
         
         return embed
     
-    @app_commands.command(name="ava_panel", description="Display the AVA schedule for the next 48 hours")
+    @app_commands.command(name="ava_panel", description="Display weakened prisms AVA schedule for the next 48 hours")
     async def ava_panel_command(self, interaction: discord.Interaction):
-        """Display AVA panel with schedule information"""
+        """Display AVA panel with weakened prisms schedule information"""
         await interaction.response.defer()
         
         try:
@@ -311,7 +335,22 @@ class PrismCog(commands.Cog):
             
             # Create and send the embed
             embed = self.create_ava_embed()
-            await interaction.followup.send(embed=embed)
+            
+            # Final size check before sending
+            embed_size = self.calculate_embed_size(embed)
+            logger.info(f"Embed size: {embed_size} characters")
+            
+            if embed_size > 6000:
+                # Fallback: create a minimal embed
+                fallback_embed = discord.Embed(
+                    title="⚠️ AFL Alliance - Weakened Prisms",
+                    description="Too much data to display. Please contact an admin to check the prism schedule.",
+                    color=0xff6b35
+                )
+                await interaction.followup.send(embed=fallback_embed)
+                logger.warning(f"Embed too large ({embed_size} chars), sent fallback")
+            else:
+                await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.exception("Error creating AVA panel")
