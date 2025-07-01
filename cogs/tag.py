@@ -9,7 +9,7 @@ class TagCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.first_server_id = 1213699457233985587  # First server ID
-        self.second_server_id = 1243943760086171759  # Second server ID
+        self.second_server_id = 1363616633951748270  # Second server ID
         
     async def get_member_from_first_server(self, user_id):
         """Get member from the first server"""
