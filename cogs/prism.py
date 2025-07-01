@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import aiohttp
 import asyncio
 from datetime import datetime, timedelta
@@ -338,15 +339,15 @@ class PrismCog(commands.Cog):
                     ephemeral=True
                 )
 
-    @commands.slash_command(name="ava_panel", description="Create an interactive AVA information panel")
-    async def ava_panel_command(self, ctx):
+    @app_commands.command(name="ava_panel", description="Create an interactive AVA information panel")
+    async def ava_panel_command(self, interaction: discord.Interaction):
         """Create a comprehensive AVA panel with all information"""
         # Check if user has manage messages permission
-        if not ctx.author.guild_permissions.manage_messages:
-            await ctx.respond("❌ You need 'Manage Messages' permission to create AVA panels.", ephemeral=True)
+        if not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("❌ You need 'Manage Messages' permission to create AVA panels.", ephemeral=True)
             return
         
-        await ctx.defer()
+        await interaction.response.defer()
         
         try:
             # Create the comprehensive embed
@@ -356,7 +357,7 @@ class PrismCog(commands.Cog):
             view = self.AVAPanelView(self)
             
             # Send the panel
-            await ctx.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view)
             
         except Exception as e:
             logger.exception("Error creating AVA panel")
@@ -365,17 +366,39 @@ class PrismCog(commands.Cog):
                 description="An error occurred while creating the AVA panel.", 
                 color=0xff0000
             )
-            await ctx.followup.send(embed=error_embed)
+            await interaction.followup.send(embed=error_embed)
     
-    @commands.slash_command(name="refresh_ava", description="Manually refresh AVA data (Admin only)")
-    async def refresh_ava_command(self, ctx):
-        """Manually refresh the AVA data"""
-        # Check if user has admin permissions
-        if not ctx.author.guild_permissions.administrator:
-            await ctx.respond("❌ You need administrator permissions to use this command.", ephemeral=True)
+    @commands.command(name='ava_panel')
+    async def ava_panel_prefix_command(self, ctx):
+        """Prefix version of AVA panel command"""
+        # Check if user has manage messages permission
+        if not ctx.author.guild_permissions.manage_messages:
+            await ctx.send("❌ You need 'Manage Messages' permission to create AVA panels.")
             return
         
-        await ctx.defer()
+        try:
+            # Create the comprehensive embed
+            embed = self.create_comprehensive_embed()
+            
+            # Create the interactive view
+            view = self.AVAPanelView(self)
+            
+            # Send the panel
+            await ctx.send(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.exception("Error creating AVA panel")
+            await ctx.send("❌ An error occurred while creating the AVA panel.")
+    
+    @app_commands.command(name="refresh_ava", description="Manually refresh AVA data (Admin only)")
+    async def refresh_ava_command(self, interaction: discord.Interaction):
+        """Manually refresh the AVA data"""
+        # Check if user has admin permissions
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
         
         try:
             await self.update_data()
@@ -384,7 +407,7 @@ class PrismCog(commands.Cog):
                 description=f"AVA data updated successfully at {datetime.now(self.paris_tz).strftime('%H:%M:%S')}", 
                 color=0x00ff00
             )
-            await ctx.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed)
         except Exception as e:
             logger.exception("Error refreshing AVA data")
             embed = discord.Embed(
@@ -392,7 +415,7 @@ class PrismCog(commands.Cog):
                 description="Failed to refresh AVA data. Check logs for details.", 
                 color=0xff0000
             )
-            await ctx.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed)
 
 def setup(bot):
     bot.add_cog(PrismCog(bot))
