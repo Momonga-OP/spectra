@@ -203,7 +203,7 @@ class PrismCog(commands.Cog):
         """Create an embed with AVA information for next 48h (weakened prisms only)"""
         embed = discord.Embed(
             title="⚠️ AFL Alliance - Weakened Prisms AVA Schedule",
-            description="Weakened prism AVA schedule for the next 48 hours",
+            description="Weakened prism AVA schedule for the next 48 hours\n🔄 *Auto-refreshes every 30 seconds*",
             color=0xff6b35,  # Orange color for weakened status
             timestamp=datetime.utcnow()
         )
@@ -252,8 +252,19 @@ class PrismCog(commands.Cog):
                 ava_time = ava_datetime.strftime('%H:%M')
                 position = prism.get('position', '')
                 
+                # Add special indicators for very close AVAs
+                time_until_seconds = ava['countdown'].total_seconds()
+                if time_until_seconds <= 300:  # 5 minutes or less
+                    status_emoji = "🚨"  # Emergency
+                elif time_until_seconds <= 900:  # 15 minutes or less
+                    status_emoji = "🔥"  # Very urgent
+                elif time_until_seconds <= 1800:  # 30 minutes or less
+                    status_emoji = "⏰"  # Urgent
+                else:
+                    status_emoji = "⚠️"  # Normal weakened
+                
                 # Create the AVA line
-                ava_line = f"⚠️ **{prism_name}** - `{ava_time}` - ⏰ {countdown}"
+                ava_line = f"{status_emoji} **{prism_name}** - `{ava_time}` - ⏰ {countdown}"
                 if position:
                     ava_line += f" - 📍 {position}"
                 
@@ -323,9 +334,9 @@ class PrismCog(commands.Cog):
         
         return embed
     
-    @app_commands.command(name="ava_panel", description="Display weakened prisms AVA schedule for the next 48 hours")
+    @app_commands.command(name="ava_panel", description="Display weakened prisms AVA schedule for the next 48 hours with auto-refresh")
     async def ava_panel_command(self, interaction: discord.Interaction):
-        """Display AVA panel with weakened prisms schedule information"""
+        """Display AVA panel with weakened prisms schedule information and auto-refresh"""
         await interaction.response.defer()
         
         try:
@@ -333,7 +344,7 @@ class PrismCog(commands.Cog):
             if not self.prism_data:
                 await self.update_data()
             
-            # Create and send the embed
+            # Create and send initial embed
             embed = self.create_ava_embed()
             
             # Final size check before sending
@@ -347,10 +358,13 @@ class PrismCog(commands.Cog):
                     description="Too much data to display. Please contact an admin to check the prism schedule.",
                     color=0xff6b35
                 )
-                await interaction.followup.send(embed=fallback_embed)
+                message = await interaction.followup.send(embed=fallback_embed)
                 logger.warning(f"Embed too large ({embed_size} chars), sent fallback")
             else:
-                await interaction.followup.send(embed=embed)
+                message = await interaction.followup.send(embed=embed)
+            
+            # Start auto-refresh task for this specific message
+            asyncio.create_task(self.auto_refresh_panel(message))
             
         except Exception as e:
             logger.exception("Error creating AVA panel")
@@ -360,6 +374,63 @@ class PrismCog(commands.Cog):
                 color=0xff0000
             )
             await interaction.followup.send(embed=error_embed, ephemeral=True)
+    
+    async def auto_refresh_panel(self, message):
+        """Auto-refresh the AVA panel every 30 seconds for up to 2 hours"""
+        refresh_count = 0
+        max_refreshes = 240  # 2 hours * 60 minutes / 30 seconds = 240 refreshes
+        
+        try:
+            while refresh_count < max_refreshes:
+                await asyncio.sleep(30)  # Wait 30 seconds between updates
+                refresh_count += 1
+                
+                try:
+                    # Get upcoming weakened AVAs
+                    upcoming_avas = self.get_next_48h_avas(weakened_only=True)
+                    
+                    # If no more weakened prisms in next 48h, stop refreshing
+                    if not upcoming_avas:
+                        logger.info(f"No more weakened prisms, stopping auto-refresh for message {message.id}")
+                        break
+                    
+                    # Check if any AVAs are very close (within 5 minutes) - refresh more frequently
+                    next_ava_time = min(ava['countdown'] for ava in upcoming_avas)
+                    if next_ava_time <= timedelta(minutes=5):
+                        # Switch to 15-second updates when AVA is very close
+                        await asyncio.sleep(15)  # Additional 15 seconds (total 45s from last update)
+                    
+                    # Create updated embed
+                    new_embed = self.create_ava_embed()
+                    
+                    # Check size before updating
+                    embed_size = self.calculate_embed_size(new_embed)
+                    
+                    if embed_size <= 6000:
+                        await message.edit(embed=new_embed)
+                        logger.info(f"Auto-refreshed AVA panel (refresh #{refresh_count})")
+                    else:
+                        logger.warning(f"Skipped refresh due to size limit: {embed_size} chars")
+                        
+                except discord.NotFound:
+                    # Message was deleted, stop refreshing
+                    logger.info(f"Message {message.id} was deleted, stopping auto-refresh")
+                    break
+                except discord.Forbidden:
+                    # No permission to edit, stop refreshing
+                    logger.info(f"No permission to edit message {message.id}, stopping auto-refresh")
+                    break
+                except Exception as e:
+                    logger.warning(f"Error during auto-refresh: {e}")
+                    # Continue trying for temporary errors
+                    continue
+                    
+        except asyncio.CancelledError:
+            logger.info("Auto-refresh task was cancelled")
+        except Exception as e:
+            logger.exception(f"Fatal error in auto-refresh: {e}")
+        finally:
+            logger.info(f"Auto-refresh stopped for message {message.id} after {refresh_count} refreshes")
 
 async def setup(bot):
     await bot.add_cog(PrismCog(bot))
