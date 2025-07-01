@@ -223,15 +223,17 @@ class PrismCog(commands.Cog):
                     
                     description = "\n".join(description_parts)
                     
-                    # Calculate end time (1 hour after start)
-                    end_time = ava_datetime + timedelta(hours=1)
+                    # Calculate start time (1 hour earlier to fix timezone and 30 minutes earlier for gathering)
+                    start_time = ava_datetime - timedelta(hours=1, minutes=30)
+                    # Calculate end time (30 minutes after the original AVA time)
+                    end_time = ava_datetime + timedelta(minutes=30)
                     
                     try:
                         # Create the scheduled event
                         event = await target_guild.create_scheduled_event(
                             name=event_name,
                             description=description,
-                            start_time=ava_datetime,
+                            start_time=start_time,
                             end_time=end_time,
                             entity_type=discord.EntityType.external,
                             location="Dofus Touch - In Game",
