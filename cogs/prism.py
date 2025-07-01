@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 import pytz
 import re
 import logging
-import json
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -19,40 +17,12 @@ class PrismCog(commands.Cog):
         self.prism_data = []
         self.last_update = None
         self.paris_tz = pytz.timezone('Europe/Paris')
-        self.panel_messages = []  # Store panel message IDs and channel IDs for persistence
-        self.data_file = "prism_panels.json"
         
-        # Load persistent panel data
-        self.load_panel_data()
-        
-        # Start tasks
+        # Start data update task
         self.update_data.start()
-        self.update_panels.start()
     
     def cog_unload(self):
         self.update_data.cancel()
-        self.update_panels.cancel()
-        self.save_panel_data()
-    
-    def load_panel_data(self):
-        """Load persistent panel data from file"""
-        try:
-            if os.path.exists(self.data_file):
-                with open(self.data_file, 'r') as f:
-                    self.panel_messages = json.load(f)
-            else:
-                self.panel_messages = []
-        except Exception as e:
-            logger.error(f"Error loading panel data: {e}")
-            self.panel_messages = []
-    
-    def save_panel_data(self):
-        """Save persistent panel data to file"""
-        try:
-            with open(self.data_file, 'w') as f:
-                json.dump(self.panel_messages, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving panel data: {e}")
     
     @tasks.loop(minutes=5)  # Update data every 5 minutes
     async def update_data(self):
@@ -64,69 +34,51 @@ class PrismCog(commands.Cog):
                         content = await response.text()
                         self.prism_data = self.parse_csv_data(content)
                         self.last_update = datetime.now(self.paris_tz)
-                        logger.info("Prism data updated successfully")
+                        logger.info(f"Prism data updated successfully - {len(self.prism_data)} entries loaded")
                     else:
                         logger.error(f"Failed to fetch sheet data: {response.status}")
         except Exception as e:
-            logger.exception("Error updating prism data")
-    
-    @tasks.loop(minutes=1)  # Update panels every minute for accurate countdowns
-    async def update_panels(self):
-        """Update all persistent panels"""
-        if not self.panel_messages:
-            return
-        
-        panels_to_remove = []
-        
-        for panel_info in self.panel_messages:
-            try:
-                channel = self.bot.get_channel(panel_info['channel_id'])
-                if channel:
-                    try:
-                        message = await channel.fetch_message(panel_info['message_id'])
-                        embed = self.create_comprehensive_embed()
-                        await message.edit(embed=embed)
-                    except discord.NotFound:
-                        # Message was deleted, remove from list
-                        panels_to_remove.append(panel_info)
-                    except discord.Forbidden:
-                        logger.warning(f"No permission to edit message in channel {panel_info['channel_id']}")
-                    except Exception as e:
-                        logger.error(f"Error updating panel message: {e}")
-                else:
-                    # Channel not found, remove from list
-                    panels_to_remove.append(panel_info)
-            except Exception as e:
-                logger.error(f"Error processing panel update: {e}")
-                panels_to_remove.append(panel_info)
-        
-        # Remove invalid panels
-        for panel_info in panels_to_remove:
-            self.panel_messages.remove(panel_info)
-        
-        if panels_to_remove:
-            self.save_panel_data()
+            logger.exception(f"Error updating prism data: {e}")
     
     @update_data.before_loop
     async def before_update_data(self):
         await self.bot.wait_until_ready()
-    
-    @update_panels.before_loop
-    async def before_update_panels(self):
-        await self.bot.wait_until_ready()
-        # Wait a bit for the bot to fully initialize
-        await asyncio.sleep(5)
+        # Initial data fetch
+        await self.update_data()
     
     def parse_csv_data(self, csv_content):
         """Parse CSV content and extract relevant prism/AVA data"""
         lines = csv_content.strip().split('\n')
         data = []
         
-        # Skip header row
-        for line in lines[1:]:
-            # Basic CSV parsing (you may need to adjust based on actual sheet structure)
-            fields = [field.strip('"') for field in line.split(',')]
-            if len(fields) >= 4:  # Assuming minimum required fields
+        # Skip header row if it exists
+        for i, line in enumerate(lines):
+            if i == 0:
+                # Check if first line looks like headers
+                if any(header in line.lower() for header in ['prism', 'server', 'time', 'ava', 'alliance']):
+                    continue
+            
+            # Parse CSV line (handling quoted fields)
+            fields = []
+            current_field = ""
+            in_quotes = False
+            
+            for char in line:
+                if char == '"':
+                    in_quotes = not in_quotes
+                elif char == ',' and not in_quotes:
+                    fields.append(current_field.strip())
+                    current_field = ""
+                else:
+                    current_field += char
+            
+            # Add the last field
+            fields.append(current_field.strip())
+            
+            # Clean up fields
+            fields = [field.strip('"').strip() for field in fields]
+            
+            if len(fields) >= 3 and fields[0]:  # Minimum required fields and non-empty prism name
                 data.append({
                     'prism_name': fields[0] if len(fields) > 0 else '',
                     'server': fields[1] if len(fields) > 1 else '',
@@ -134,6 +86,7 @@ class PrismCog(commands.Cog):
                     'status': fields[3] if len(fields) > 3 else '',
                     'alliance': fields[4] if len(fields) > 4 else ''
                 })
+        
         return data
     
     def get_next_48h_avas(self):
@@ -141,15 +94,18 @@ class PrismCog(commands.Cog):
         now = datetime.now(self.paris_tz)
         upcoming_avas = []
         
-        # Get AVAs for the next 2 days
-        for day_offset in range(3):  # Today, tomorrow, day after
+        # Get AVAs for the next 3 days to ensure we cover 48 hours
+        for day_offset in range(3):
             check_date = now + timedelta(days=day_offset)
             
             for prism in self.prism_data:
                 if prism.get('ava_time'):
                     try:
-                        # Parse AVA time (assuming format like "20:30" for daily AVA)
-                        time_match = re.match(r'(\d{1,2}):(\d{2})', prism['ava_time'])
+                        # Parse AVA time (assuming format like "20:30" or "8:30 PM")
+                        time_str = prism['ava_time'].strip()
+                        
+                        # Handle different time formats
+                        time_match = re.match(r'(\d{1,2}):(\d{2})', time_str)
                         if time_match:
                             hour, minute = map(int, time_match.groups())
                             
@@ -158,7 +114,7 @@ class PrismCog(commands.Cog):
                             
                             # Only include if it's within 48 hours and in the future
                             time_until = ava_datetime - now
-                            if timedelta(0) < time_until <= timedelta(hours=48):
+                            if timedelta(minutes=1) < time_until <= timedelta(hours=48):
                                 upcoming_avas.append({
                                     'prism': prism,
                                     'ava_datetime': ava_datetime,
@@ -190,30 +146,22 @@ class PrismCog(commands.Cog):
     
     def get_day_name(self, date):
         """Get day name from date"""
-        day_names = {
-            0: 'Monday',
-            1: 'Tuesday', 
-            2: 'Wednesday',
-            3: 'Thursday',
-            4: 'Friday',
-            5: 'Saturday',
-            6: 'Sunday'
-        }
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         return day_names[date.weekday()]
     
-    def create_comprehensive_embed(self):
-        """Create a comprehensive embed with all AVA information for next 48h"""
+    def create_ava_embed(self):
+        """Create an embed with AVA information for next 48h"""
         embed = discord.Embed(
-            title="AFL Alliance - AVA Schedule (Next 48 Hours)",
-            description="Alliance vs Alliance schedule and countdowns",
+            title="🏰 AFL Alliance - AVA Schedule",
+            description="Alliance vs Alliance schedule for the next 48 hours",
             color=0x9932cc,
             timestamp=datetime.utcnow()
         )
         
         if not self.prism_data:
             embed.add_field(
-                name="No Data Available", 
-                value="Prism data not loaded. Please wait for the next update.", 
+                name="⚠️ No Data Available", 
+                value="Prism data is still loading. Please try again in a moment.", 
                 inline=False
             )
             return embed
@@ -221,8 +169,8 @@ class PrismCog(commands.Cog):
         # Current time information
         paris_time = datetime.now(self.paris_tz)
         embed.add_field(
-            name="Current Dofus Touch Time (Paris)", 
-            value=f"{paris_time.strftime('%H:%M:%S')} - {self.get_day_name(paris_time)}, {paris_time.strftime('%d/%m/%Y')}", 
+            name="🕐 Current Dofus Touch Time (Paris)", 
+            value=f"`{paris_time.strftime('%H:%M:%S')}` - {self.get_day_name(paris_time)}, {paris_time.strftime('%d/%m/%Y')}", 
             inline=False
         )
         
@@ -245,16 +193,16 @@ class PrismCog(commands.Cog):
                 if current_day != ava_day:
                     if current_day is not None:  # Not the first day
                         ava_lines.append("")  # Add blank line between days
-                    ava_lines.append(f"**{day_name}, {ava_day}**")
+                    ava_lines.append(f"📅 **{day_name}, {ava_day}**")
                     current_day = ava_day
                 
                 # Format AVA entry
-                status = "Controlled" if prism.get('status', '').lower() == 'controlled' else "Not Controlled"
+                status_emoji = "✅" if prism.get('status', '').lower() in ['controlled', 'yes', '1'] else "❌"
                 server = prism.get('server', 'Unknown')
                 prism_name = prism.get('prism_name', 'Unknown')
                 ava_time = ava_datetime.strftime('%H:%M')
                 
-                ava_line = f"{prism_name} ({server}) - {ava_time} - {countdown} - {status}"
+                ava_line = f"{status_emoji} **{prism_name}** ({server}) - `{ava_time}` - ⏰ {countdown}"
                 ava_lines.append(ava_line)
             
             # Split into multiple fields if too long
@@ -262,7 +210,7 @@ class PrismCog(commands.Cog):
             
             if len(ava_text) <= 1024:
                 embed.add_field(
-                    name="Upcoming AVAs", 
+                    name="⚔️ Upcoming AVAs", 
                     value=ava_text, 
                     inline=False
                 )
@@ -277,7 +225,7 @@ class PrismCog(commands.Cog):
                     
                     if current_length + line_length > 1020 and current_field:  # Leave some margin
                         # Add current field
-                        field_name = f"Upcoming AVAs {field_count}" if field_count > 1 else "Upcoming AVAs"
+                        field_name = f"⚔️ Upcoming AVAs (Part {field_count})" if field_count > 1 else "⚔️ Upcoming AVAs"
                         embed.add_field(
                             name=field_name,
                             value="\n".join(current_field),
@@ -294,7 +242,7 @@ class PrismCog(commands.Cog):
                 
                 # Add remaining field
                 if current_field:
-                    field_name = f"Upcoming AVAs {field_count}" if field_count > 1 else "Upcoming AVAs"
+                    field_name = f"⚔️ Upcoming AVAs (Part {field_count})" if field_count > 1 else "⚔️ Upcoming AVAs"
                     embed.add_field(
                         name=field_name,
                         value="\n".join(current_field),
@@ -302,126 +250,41 @@ class PrismCog(commands.Cog):
                     )
         else:
             embed.add_field(
-                name="No Upcoming AVAs", 
+                name="😴 No Upcoming AVAs", 
                 value="No AVA schedules found for the next 48 hours.", 
                 inline=False
             )
         
-        # Add last update info
+        # Add footer with update info
         if self.last_update:
-            embed.set_footer(text=f"Last updated: {self.last_update.strftime('%H:%M:%S')} • Auto-refreshes every minute")
+            embed.set_footer(text=f"Last updated: {self.last_update.strftime('%H:%M:%S')} • Data refreshes every 5 minutes")
+        else:
+            embed.set_footer(text="Data is loading...")
         
         return embed
     
-    @app_commands.command(name="ava_panel", description="Create a persistent AVA information panel")
+    @app_commands.command(name="ava_panel", description="Display the AVA schedule for the next 48 hours")
     async def ava_panel_command(self, interaction: discord.Interaction):
-        """Create a persistent AVA panel"""
-        # Check if user has manage messages permission
-        if not interaction.user.guild_permissions.manage_messages:
-            await interaction.response.send_message("You need 'Manage Messages' permission to create AVA panels.", ephemeral=True)
-            return
-        
+        """Display AVA panel with schedule information"""
         await interaction.response.defer()
         
         try:
-            # Create the comprehensive embed
-            embed = self.create_comprehensive_embed()
+            # Force data refresh if no data is available
+            if not self.prism_data:
+                await self.update_data()
             
-            # Send the panel
-            message = await interaction.followup.send(embed=embed)
-            
-            # Add to persistent panels list
-            panel_info = {
-                'message_id': message.id,
-                'channel_id': interaction.channel.id,
-                'created_by': interaction.user.id,
-                'created_at': datetime.now().isoformat()
-            }
-            
-            self.panel_messages.append(panel_info)
-            self.save_panel_data()
-            
-            # Send confirmation
-            await interaction.followup.send(
-                "AVA panel created successfully! It will auto-update every minute and persist across bot restarts.", 
-                ephemeral=True
-            )
+            # Create and send the embed
+            embed = self.create_ava_embed()
+            await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.exception("Error creating AVA panel")
-            await interaction.followup.send("An error occurred while creating the AVA panel.", ephemeral=True)
-    
-    @commands.command(name='ava_panel')
-    async def ava_panel_prefix_command(self, ctx):
-        """Prefix version of AVA panel command"""
-        # Check if user has manage messages permission
-        if not ctx.author.guild_permissions.manage_messages:
-            await ctx.send("You need 'Manage Messages' permission to create AVA panels.")
-            return
-        
-        try:
-            # Create the comprehensive embed
-            embed = self.create_comprehensive_embed()
-            
-            # Send the panel
-            message = await ctx.send(embed=embed)
-            
-            # Add to persistent panels list
-            panel_info = {
-                'message_id': message.id,
-                'channel_id': ctx.channel.id,
-                'created_by': ctx.author.id,
-                'created_at': datetime.now().isoformat()
-            }
-            
-            self.panel_messages.append(panel_info)
-            self.save_panel_data()
-            
-            await ctx.send("AVA panel created successfully! It will auto-update every minute and persist across bot restarts.", delete_after=5)
-            
-        except Exception as e:
-            logger.exception("Error creating AVA panel")
-            await ctx.send("An error occurred while creating the AVA panel.")
-    
-    @app_commands.command(name="refresh_ava", description="Manually refresh AVA data (Admin only)")
-    async def refresh_ava_command(self, interaction: discord.Interaction):
-        """Manually refresh the AVA data"""
-        # Check if user has admin permissions
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
-            return
-        
-        await interaction.response.defer()
-        
-        try:
-            await self.update_data()
-            embed = discord.Embed(
-                title="Data Refreshed", 
-                description=f"AVA data updated successfully at {datetime.now(self.paris_tz).strftime('%H:%M:%S')}", 
-                color=0x00ff00
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        except Exception as e:
-            logger.exception("Error refreshing AVA data")
-            embed = discord.Embed(
-                title="Refresh Failed", 
-                description="Failed to refresh AVA data. Check logs for details.", 
+            error_embed = discord.Embed(
+                title="❌ Error",
+                description="An error occurred while fetching AVA data. Please try again later.",
                 color=0xff0000
             )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-    
-    @app_commands.command(name="clear_panels", description="Clear all persistent AVA panels (Admin only)")
-    async def clear_panels_command(self, interaction: discord.Interaction):
-        """Clear all persistent panels"""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
-            return
-        
-        panel_count = len(self.panel_messages)
-        self.panel_messages = []
-        self.save_panel_data()
-        
-        await interaction.response.send_message(f"Cleared {panel_count} persistent AVA panels.", ephemeral=True)
+            await interaction.followup.send(embed=error_embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(PrismCog(bot))
