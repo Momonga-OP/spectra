@@ -15,6 +15,11 @@ class MultiServerInviteTracker(commands.Cog):
                 'notification_channel_id': 1376299601358885066,
                 'invites': {},
                 'member_inviter_map': {}  # Track who invited each member
+            },
+            1363616633951748270: {  # Server 3
+                'notification_channel_id': 1390328355458383993,
+                'invites': {},
+                'member_inviter_map': {}  # Track who invited each member
             }
         }
 
