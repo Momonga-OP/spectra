@@ -18,9 +18,9 @@ class DofusTimeUpdater(commands.Cog):
         """Clean up when the cog is unloaded"""
         self.update_dofus_time.cancel()
     
-    @tasks.loop(minutes=1)
+    @tasks.loop(minutes=10)  # Update every 10 minutes - safest, never hits rate limits
     async def update_dofus_time(self):
-        """Update the Dofus time channel every minute"""
+        """Update the Dofus time channel every 10 minutes (safest approach for Discord rate limits)"""
         try:
             # Get the specific guild and channel
             guild = self.bot.get_guild(self.guild_id)
@@ -49,14 +49,17 @@ class DofusTimeUpdater(commands.Cog):
                     await channel.edit(name=new_name)
                     logger.info(f"Updated Dofus time channel to: {new_name}")
                 except discord.HTTPException as e:
-                    if e.status == 429:  # Rate limit
-                        logger.warning(f"Rate limited when updating channel name: {e}")
+                    if e.status == 429:  # Rate limit hit
+                        logger.warning(f"Rate limited when updating channel name. Discord allows only 2 channel renames per 10 minutes.")
+                        # The task will try again in 10 minutes
                     else:
                         logger.error(f"Failed to update channel name: {e}")
                 except discord.Forbidden:
                     logger.error("Missing permissions to edit the channel")
                 except Exception as e:
                     logger.error(f"Unexpected error updating channel: {e}")
+            else:
+                logger.debug(f"Channel name unchanged: {channel.name}")
             
         except Exception as e:
             logger.error(f"Error in update_dofus_time task: {e}")
