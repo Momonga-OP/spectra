@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import json
 import asyncio
 from datetime import datetime
@@ -12,7 +13,7 @@ class TeamsPVPView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
-    @discord.ui.button(label='⚔️ Attend the Mass Attack', style=discord.ButtonStyle.primary, custom_id='attend_mass_attack')
+    @discord.ui.button(label='Attend the Mass Attack', style=discord.ButtonStyle.primary, custom_id='attend_mass_attack')
     async def attend_mass_attack(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Show user choice buttons
         view = TeamChoiceView(self.bot)
@@ -28,17 +29,33 @@ class TeamChoiceView(discord.ui.View):
         super().__init__(timeout=300)
         self.bot = bot
 
-    @discord.ui.button(label='🛡️ I Have My Own Team', style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label='I Have My Own Team', style=discord.ButtonStyle.secondary)
     async def own_team(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = self.bot.get_cog('TeamsPVP')
         if cog:
             await cog.create_own_team(interaction)
 
-    @discord.ui.button(label='🎲 Autofill Me Into a Team', style=discord.ButtonStyle.success)
+    @discord.ui.button(label='Autofill Me Into a Team', style=discord.ButtonStyle.success)
     async def autofill_team(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = self.bot.get_cog('TeamsPVP')
         if cog:
             await cog.add_to_autofill_queue(interaction)
+
+class ReplaceConfirmView(discord.ui.View):
+    def __init__(self, bot, channel):
+        super().__init__(timeout=60)
+        self.bot = bot
+        self.channel = channel
+
+    @discord.ui.button(label='Yes, Replace', style=discord.ButtonStyle.danger)
+    async def confirm_replace(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = self.bot.get_cog('TeamsPVP')
+        if cog:
+            await cog.post_mass_attack_message(interaction, self.channel, replace=True)
+
+    @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary)
+    async def cancel_replace(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Operation cancelled.", view=None, embed=None)
 
 class TeamsPVP(commands.Cog):
     def __init__(self, bot):
@@ -53,12 +70,13 @@ class TeamsPVP(commands.Cog):
         self.autofill_queue = []
         self.max_team_size = 5
         self.team_threads = {}  # Store thread info
+        self.active_messages = {}  # Track active mass attack messages per channel
         
     async def cog_load(self):
         """Called when the cog is loaded"""
         await self.setup_data_channel()
         await self.load_data()
-        await self.setup_main_message()
+        # Remove the auto-setup of main message since we're using slash commands now
 
     async def setup_data_channel(self):
         """Find or create the data persistence channel"""
@@ -124,6 +142,7 @@ class TeamsPVP(commands.Cog):
                     self.autofill_queue = data.get('autofill_queue', [])
                     self.max_team_size = data.get('max_team_size', 5)
                     self.team_threads = data.get('team_threads', {})
+                    self.active_messages = data.get('active_messages', {})
                     
                     logger.info(f"Loaded data: {len(self.autofill_queue)} in queue, next team ID: {self.next_team_id}")
             else:
@@ -146,6 +165,7 @@ class TeamsPVP(commands.Cog):
             'autofill_queue': self.autofill_queue,
             'max_team_size': self.max_team_size,
             'team_threads': self.team_threads,
+            'active_messages': self.active_messages,
             'last_updated': datetime.now().isoformat()
         }
         
@@ -166,34 +186,97 @@ class TeamsPVP(commands.Cog):
         except Exception as e:
             logger.exception("Error saving data")
 
-    async def setup_main_message(self):
-        """Setup the main signup message in the pvp-mass-attack channel"""
-        channel = self.bot.get_channel(self.signup_channel_id)
-        if not channel:
-            logger.error(f"Signup channel {self.signup_channel_id} not found")
+    @app_commands.command(name="massattack", description="Post the Mass Attack team coordination message.")
+    @app_commands.describe(
+        channel="The channel to post the message in (defaults to current channel)"
+    )
+    async def mass_attack_command(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        """Slash command to post the Mass Attack coordination message"""
+        
+        # Check permissions
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You need 'Manage Guild' permission to use this command.", 
+                ephemeral=True
+            )
             return
         
-        # Check if the main message already exists
-        messages = [message async for message in channel.history(limit=10)]
-        main_message = None
+        target_channel = channel or interaction.channel
         
-        for message in messages:
-            if message.author == self.bot.user and "PVP Mass Attack Coordination Hub" in message.content:
-                main_message = message
-                break
+        # Check if message already exists in this channel
+        channel_id = str(target_channel.id)
+        if channel_id in self.active_messages:
+            # Check if the message still exists
+            try:
+                message = await target_channel.fetch_message(self.active_messages[channel_id])
+                # Message exists, ask for confirmation
+                embed = discord.Embed(
+                    title="Mass Attack Message Already Exists",
+                    description=f"A Mass Attack coordination message already exists in {target_channel.mention}.\n\n"
+                               f"Do you want to replace it with a new one?",
+                    color=0xff9900
+                )
+                view = ReplaceConfirmView(self.bot, target_channel)
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+                return
+            except discord.NotFound:
+                # Message was deleted, remove from tracking
+                del self.active_messages[channel_id]
+                await self.save_data()
         
-        if not main_message:
-            # Create the main message
-            content = """📢 **Welcome to the PVP Mass Attack Coordination Hub!**
+        # Post the message
+        await self.post_mass_attack_message(interaction, target_channel)
 
-➤ If you already have a team, you can create a private thread to coordinate.
-➤ If you want to be assigned to a team automatically, join the autofill queue.
+    async def post_mass_attack_message(self, interaction: discord.Interaction, channel: discord.TextChannel, replace: bool = False):
+        """Post the mass attack coordination message"""
+        
+        # Clean message content without emojis
+        content = """**Welcome to the PVP Mass Attack Coordination Hub**
 
-Please click the button below to begin."""
+• If you already have a team, you can create a private thread to coordinate with your teammates.
+• If you want to be assigned to a team automatically, join the autofill queue.
+
+Click the button below to begin."""
+        
+        view = TeamsPVPView(self.bot)
+        
+        try:
+            # If replacing, delete the old message first
+            if replace:
+                channel_id = str(channel.id)
+                if channel_id in self.active_messages:
+                    try:
+                        old_message = await channel.fetch_message(self.active_messages[channel_id])
+                        await old_message.delete()
+                    except discord.NotFound:
+                        pass  # Message was already deleted
             
-            view = TeamsPVPView(self.bot)
-            await channel.send(content, view=view)
-            logger.info("Created main signup message")
+            # Post the new message
+            message = await channel.send(content, view=view)
+            
+            # Track the message
+            self.active_messages[str(channel.id)] = message.id
+            await self.save_data()
+            
+            # Respond to the interaction
+            action = "replaced" if replace else "posted"
+            response_text = f"✅ Mass Attack coordination message {action} in {channel.mention}"
+            
+            if interaction.response.is_done():
+                await interaction.edit_original_response(content=response_text, view=None, embed=None)
+            else:
+                await interaction.response.send_message(response_text, ephemeral=True)
+                
+            logger.info(f"Mass attack message {action} in {channel.name} by {interaction.user}")
+            
+        except Exception as e:
+            logger.exception("Error posting mass attack message")
+            error_text = f"❌ Failed to post the Mass Attack message in {channel.mention}"
+            
+            if interaction.response.is_done():
+                await interaction.edit_original_response(content=error_text, view=None, embed=None)
+            else:
+                await interaction.response.send_message(error_text, ephemeral=True)
 
     async def create_own_team(self, interaction: discord.Interaction):
         """Create a private team thread for users with their own team"""
@@ -331,7 +414,7 @@ Please click the button below to begin."""
             # Send welcome message to the thread
             member_mentions = [f"<@{user_id}>" for user_id in members_added]
             embed = discord.Embed(
-                title=f"🎲 Welcome to {thread_name}!",
+                title=f"Welcome to {thread_name}!",
                 description=f"Hello {', '.join(member_mentions)}!\n\n"
                            f"You've been automatically assigned to this team for the mass attack.\n\n"
                            f"**Team size:** {len(members_added)}/{self.max_team_size}\n"
@@ -357,14 +440,14 @@ Please click the button below to begin."""
         
         if autofilled:
             embed = discord.Embed(
-                title="🟢 New Autofilled Team Created!",
+                title="New Autofilled Team Created!",
                 description=f"**{team_name}** has been created with {member_count} players.",
                 color=0x00ff00,
                 timestamp=datetime.now()
             )
         else:
             embed = discord.Embed(
-                title="🟢 New Team Created!",
+                title="New Team Created!",
                 description=f"**{team_name}** has been created by <@{creator}> with {member_count} players.",
                 color=0x00ff00,
                 timestamp=datetime.now()
@@ -396,7 +479,7 @@ Please click the button below to begin."""
         await self.save_data()
         
         embed = discord.Embed(
-            title="🔒 Team Locked!",
+            title="Team Locked!",
             description=f"This team has been locked and is ready for the mass attack.\n"
                        f"**Final team size:** {len(team_info['members'])}/{self.max_team_size}",
             color=0xff9900
@@ -495,11 +578,11 @@ Please click the button below to begin."""
             return
         
         embed = discord.Embed(
-            title="📅 Scheduled Mass Attack",
+            title="Scheduled Mass Attack",
             color=0xff0000
         )
-        embed.add_field(name="⏰ Time", value=datetime_str, inline=False)
-        embed.add_field(name="📋 Description", value=description, inline=False)
+        embed.add_field(name="Time", value=datetime_str, inline=False)
+        embed.add_field(name="Description", value=description, inline=False)
         embed.set_footer(text="Scheduled by " + str(ctx.author), icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
         embed.timestamp = datetime.now()
         
@@ -513,9 +596,10 @@ Please click the button below to begin."""
         total_teams = len(self.team_threads)
         locked_teams = sum(1 for team in self.team_threads.values() if team['locked'])
         queue_size = len(self.autofill_queue)
+        active_messages = len(self.active_messages)
         
         embed = discord.Embed(
-            title="📊 Team Statistics",
+            title="Team Statistics",
             color=0x00ff00
         )
         embed.add_field(name="Total Teams", value=total_teams, inline=True)
@@ -523,6 +607,7 @@ Please click the button below to begin."""
         embed.add_field(name="Queue Size", value=queue_size, inline=True)
         embed.add_field(name="Max Team Size", value=self.max_team_size, inline=True)
         embed.add_field(name="Next Team ID", value=self.next_team_id, inline=True)
+        embed.add_field(name="Active Messages", value=active_messages, inline=True)
         
         await ctx.send(embed=embed)
 
