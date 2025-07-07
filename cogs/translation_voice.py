@@ -8,6 +8,8 @@ from collections import deque
 from typing import Dict, Optional, List
 import logging
 import re
+import langdetect
+from langdetect import detect
 
 # Set up logging
 logging.basicConfig(
@@ -51,6 +53,7 @@ class TranslationVoice(commands.Cog):
     async def cleanup_audio_file(self, file_path: str):
         try:
             if os.path.exists(file_path):
+                await asyncio.sleep(0.1)  # Small delay to ensure file is closed
                 os.remove(file_path)
         except Exception as e:
             logging.error(f"Error cleaning up audio file: {e}")
@@ -76,44 +79,78 @@ class TranslationVoice(commands.Cog):
             def after_playing(error):
                 if error:
                     logging.error(f"Error playing audio: {error}")
+                
+                # Schedule cleanup and next play
                 asyncio.run_coroutine_threadsafe(
-                    self.cleanup_audio_file(audio_file),
-                    self.bot.loop
-                )
-                asyncio.run_coroutine_threadsafe(
-                    self.play_next(guild_id),
+                    self.cleanup_and_continue(audio_file, guild_id),
                     self.bot.loop
                 )
 
             try:
-                vc.play(discord.FFmpegPCMAudio(audio_file), after=after_playing)
+                if os.path.exists(audio_file):
+                    vc.play(discord.FFmpegPCMAudio(audio_file), after=after_playing)
+                else:
+                    logging.error(f"Audio file not found: {audio_file}")
+                    await self.play_next(guild_id)
             except Exception as e:
                 logging.error(f"Error starting playback: {e}")
+                await self.cleanup_audio_file(audio_file)
                 await self.play_next(guild_id)
+
+    async def cleanup_and_continue(self, audio_file: str, guild_id: int):
+        """Helper method to cleanup and continue playback"""
+        await self.cleanup_audio_file(audio_file)
+        await self.play_next(guild_id)
 
     def generate_audio(self, text: str, file_path: str, lang: str):
         """Generate audio file using gTTS with the appropriate language"""
         try:
+            # Limit text length to avoid gTTS issues
+            if len(text) > 500:
+                text = text[:497] + "..."
+            
             tts = gTTS(text=text, lang=lang, slow=False)
             tts.save(file_path)
+            return True
         except Exception as e:
             logging.error(f"Error generating audio: {e}")
-            raise
+            return False
 
-    def detect_language(self, text: str) -> str:
-        """Detect if text is primarily English or Spanish"""
-        # Simple detection based on common words
-        es_words = ['el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'pero', 'porque', 'como', 'qué', 'quién', 'cuándo', 'dónde', 'por qué']
+    def detect_language_improved(self, text: str) -> str:
+        """Improved language detection using langdetect library"""
+        try:
+            # Remove URLs, mentions, and special characters
+            clean_text = re.sub(r'http\S+|@\S+|<@\S+>|[^\w\s]', '', text.lower())
+            
+            if len(clean_text.strip()) < 3:
+                return 'en'  # Default to English for very short text
+            
+            detected = detect(clean_text)
+            
+            # Only support English and Spanish
+            if detected == 'es':
+                return 'es'
+            else:
+                return 'en'
+        except:
+            # Fallback to simple detection
+            return self.detect_language_simple(text)
+
+    def detect_language_simple(self, text: str) -> str:
+        """Simple fallback language detection"""
+        es_words = ['el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'pero', 'porque', 'como', 
+                   'qué', 'quién', 'cuándo', 'dónde', 'por qué', 'sí', 'no', 'muy', 'más', 
+                   'aquí', 'allí', 'con', 'sin', 'para', 'por', 'en', 'de', 'del', 'al']
         
-        # Clean the text and convert to lowercase
         clean_text = re.sub(r'[^\w\s]', '', text.lower())
         words = clean_text.split()
         
-        # Count Spanish words
+        if not words:
+            return 'en'
+        
         spanish_count = sum(1 for word in words if word in es_words)
         
-        # If at least 20% of words are Spanish markers, consider it Spanish
-        if spanish_count / max(len(words), 1) >= 0.2:
+        if spanish_count / len(words) >= 0.15:
             return 'es'
         return 'en'
 
@@ -128,8 +165,8 @@ class TranslationVoice(commands.Cog):
         if ctx.valid:
             return
 
-        # Ignore empty messages
-        if not message.content.strip():
+        # Ignore empty messages or very short messages
+        if not message.content.strip() or len(message.content.strip()) < 2:
             return
 
         # Check if the message is in the allowed server and channel
@@ -138,26 +175,39 @@ class TranslationVoice(commands.Cog):
 
         try:
             # Detect language of the message
-            detected_lang = self.detect_language(message.content)
+            detected_lang = self.detect_language_improved(message.content)
             
             # Set target language based on detected language
             target_lang = 'es' if detected_lang == 'en' else 'en'
             
-            # Translate the message
-            translated = await self.bot.loop.run_in_executor(
-                None,
-                lambda: self.translator.translate(message.content, src=detected_lang, dest=target_lang)
-            )
+            # Translate the message with retry logic
+            translated = None
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                try:
+                    translated = await self.bot.loop.run_in_executor(
+                        None,
+                        lambda: self.translator.translate(message.content, src=detected_lang, dest=target_lang)
+                    )
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    await asyncio.sleep(1)  # Wait before retry
+            
+            if not translated or not translated.text:
+                raise Exception("Translation returned empty result")
             
             # Generate audio file with appropriate voice
             audio_file = self.get_audio_file_path(message.id)
-            await self.bot.loop.run_in_executor(
+            audio_success = await self.bot.loop.run_in_executor(
                 None,
                 lambda: self.generate_audio(translated.text, audio_file, target_lang)
             )
 
             # Handle voice channel connection
-            if message.author.voice and message.author.voice.channel:
+            if message.author.voice and message.author.voice.channel and audio_success:
                 guild_id = message.guild.id
                 
                 # Initialize queue if needed
@@ -172,15 +222,16 @@ class TranslationVoice(commands.Cog):
                     except Exception as e:
                         logging.error(f"Error connecting to voice: {e}")
                         await self.cleanup_audio_file(audio_file)
-                        return
+                        # Don't return here, still send text translation
 
                 # Add to queue and start playing if not already playing
-                queue = self.audio_queues[guild_id]
-                await queue.add_to_queue(audio_file, message)
-                
-                if not queue.is_playing:
-                    queue.is_playing = True
-                    await self.play_next(guild_id)
+                if guild_id in self.active_vc and self.active_vc[guild_id].is_connected():
+                    queue = self.audio_queues[guild_id]
+                    await queue.add_to_queue(audio_file, message)
+                    
+                    if not queue.is_playing:
+                        queue.is_playing = True
+                        await self.play_next(guild_id)
 
             # Send text translation with appropriate flag
             flag = '🇪🇸' if target_lang == 'es' else '🇺🇸'
@@ -204,8 +255,15 @@ class TranslationVoice(commands.Cog):
             await self.active_vc[guild_id].disconnect()
             del self.active_vc[guild_id]
             if guild_id in self.audio_queues:
+                # Clear queue and cleanup remaining audio files
+                queue = self.audio_queues[guild_id]
+                while queue.queue:
+                    audio_file, _ = queue.get_next()
+                    await self.cleanup_audio_file(audio_file)
                 del self.audio_queues[guild_id]
             await ctx.send("👋 Left the voice channel.")
+        else:
+            await ctx.send("❌ Not connected to any voice channel.")
             
     @commands.command(name='translator_help')
     async def translator_help(self, ctx):
@@ -226,6 +284,14 @@ class TranslationVoice(commands.Cog):
             name="Commands",
             value="**/leave** - Make the bot leave the voice channel\n"
                   "**/translator_help** - Show this help message",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Requirements",
+            value="• Join a voice channel before sending messages to hear translations\n"
+                  "• Bot works only in designated channels\n"
+                  "• Supports English ↔ Spanish translation",
             inline=False
         )
         
