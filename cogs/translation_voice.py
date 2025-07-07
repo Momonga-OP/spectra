@@ -8,8 +8,6 @@ from collections import deque
 from typing import Dict, Optional, List
 import logging
 import re
-import langdetect
-from langdetect import detect
 
 # Set up logging
 logging.basicConfig(
@@ -117,7 +115,7 @@ class TranslationVoice(commands.Cog):
             return False
 
     def detect_language_improved(self, text: str) -> str:
-        """Improved language detection using langdetect library"""
+        """Improved language detection using enhanced word matching"""
         try:
             # Remove URLs, mentions, and special characters
             clean_text = re.sub(r'http\S+|@\S+|<@\S+>|[^\w\s]', '', text.lower())
@@ -125,22 +123,36 @@ class TranslationVoice(commands.Cog):
             if len(clean_text.strip()) < 3:
                 return 'en'  # Default to English for very short text
             
-            detected = detect(clean_text)
-            
-            # Only support English and Spanish
-            if detected == 'es':
-                return 'es'
-            else:
-                return 'en'
+            # Use enhanced simple detection
+            return self.detect_language_simple(clean_text)
         except:
-            # Fallback to simple detection
-            return self.detect_language_simple(text)
+            # Fallback to basic detection
+            return 'en'
 
     def detect_language_simple(self, text: str) -> str:
-        """Simple fallback language detection"""
-        es_words = ['el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'pero', 'porque', 'como', 
-                   'qué', 'quién', 'cuándo', 'dónde', 'por qué', 'sí', 'no', 'muy', 'más', 
-                   'aquí', 'allí', 'con', 'sin', 'para', 'por', 'en', 'de', 'del', 'al']
+        """Enhanced simple language detection"""
+        # Common Spanish words and phrases
+        es_words = {
+            'el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'pero', 'porque', 'como', 
+            'qué', 'quién', 'cuándo', 'dónde', 'por qué', 'sí', 'no', 'muy', 'más', 
+            'aquí', 'allí', 'con', 'sin', 'para', 'por', 'en', 'de', 'del', 'al',
+            'que', 'es', 'está', 'son', 'están', 'tiene', 'tengo', 'hacer', 'hago',
+            'puede', 'puedo', 'quiero', 'quiere', 'mi', 'tu', 'su', 'nos', 'les',
+            'me', 'te', 'se', 'le', 'lo', 'ya', 'también', 'bien', 'mal', 'todo',
+            'nada', 'algo', 'casa', 'tiempo', 'año', 'día', 'vez', 'hombre', 'mujer',
+            'niño', 'niña', 'agua', 'comida', 'trabajo', 'escuela', 'familia'
+        }
+        
+        # Common English words
+        en_words = {
+            'the', 'and', 'or', 'but', 'because', 'how', 'what', 'who', 'when', 'where',
+            'why', 'yes', 'no', 'very', 'more', 'here', 'there', 'with', 'without',
+            'for', 'in', 'of', 'to', 'from', 'is', 'are', 'was', 'were', 'have',
+            'has', 'had', 'do', 'does', 'did', 'can', 'could', 'will', 'would',
+            'should', 'my', 'your', 'his', 'her', 'our', 'their', 'me', 'you',
+            'him', 'her', 'us', 'them', 'i', 'we', 'they', 'it', 'this', 'that',
+            'these', 'those', 'all', 'some', 'any', 'good', 'bad', 'big', 'small'
+        }
         
         clean_text = re.sub(r'[^\w\s]', '', text.lower())
         words = clean_text.split()
@@ -148,11 +160,33 @@ class TranslationVoice(commands.Cog):
         if not words:
             return 'en'
         
+        # Count matches for each language
         spanish_count = sum(1 for word in words if word in es_words)
+        english_count = sum(1 for word in words if word in en_words)
         
-        if spanish_count / len(words) >= 0.15:
+        # Calculate percentages
+        total_words = len(words)
+        spanish_percentage = spanish_count / total_words
+        english_percentage = english_count / total_words
+        
+        # Decision logic
+        if spanish_percentage > english_percentage and spanish_percentage >= 0.15:
             return 'es'
-        return 'en'
+        elif english_percentage > spanish_percentage and english_percentage >= 0.15:
+            return 'en'
+        else:
+            # If no clear winner, check for specific Spanish patterns
+            spanish_patterns = [
+                r'\b(está|están|tengo|tiene|quiero|quiere|hago|hace)\b',
+                r'\b(mi|tu|su|nos|les|del|al)\b',
+                r'\b(porque|también|año|día|niño|niña)\b'
+            ]
+            
+            for pattern in spanish_patterns:
+                if re.search(pattern, clean_text):
+                    return 'es'
+            
+            return 'en'  # Default to English
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
