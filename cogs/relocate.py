@@ -29,6 +29,8 @@ class Relocate(commands.Cog):
             logging.warning(f"Unauthorized user {interaction.user} ({interaction.user.id}) tried to use relocate command")
             return False
         return True
+
+    async def create_embed_message(self, message, source_channel):
         """Create an embedded message with author info and content"""
         embed = discord.Embed(
             description=message.content if message.content else "*No text content*",
@@ -122,6 +124,7 @@ class Relocate(commands.Cog):
         # Check authorization first
         if not await self.check_authorization(interaction):
             return
+
         try:
             await interaction.response.defer(ephemeral=True)
         except discord.errors.NotFound:
@@ -198,6 +201,7 @@ class Relocate(commands.Cog):
         # Check authorization first
         if not await self.check_authorization(interaction):
             return
+
         if count < 1 or count > 50:
             await interaction.response.send_message("Please specify a count between 1 and 50.", ephemeral=True)
             return
@@ -249,6 +253,7 @@ class Relocate(commands.Cog):
         # Check authorization first
         if not await self.check_authorization(interaction):
             return
+
         if count < 1 or count > 20:
             await interaction.response.send_message("Please specify a count between 1 and 20.", ephemeral=True)
             return
@@ -300,6 +305,7 @@ class Relocate(commands.Cog):
         # Check authorization first
         if not await self.check_authorization(interaction):
             return
+
         try:
             await interaction.response.defer(ephemeral=True)
         except discord.errors.NotFound:
