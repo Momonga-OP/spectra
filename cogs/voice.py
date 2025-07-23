@@ -225,11 +225,26 @@ class Voice(commands.Cog):
             
         if channel.guild.id in self.active_connections:
             logger.debug(f"Already connected to guild {channel.guild.id}")
-            return None
+            # Try to get existing voice client
+            existing_vc = discord.utils.get(self.bot.voice_clients, guild=channel.guild)
+            if existing_vc and existing_vc.is_connected():
+                return existing_vc
+            else:
+                # Clean up stale connection tracking
+                self.active_connections.discard(channel.guild.id)
 
         # Get guild's preferred region
         voice_region = getattr(channel.guild, 'region', 'us-central')
         logger.info(f"Attempting connection to {channel.id} in region: {voice_region}")
+
+        # Check if we already have a voice client for this guild
+        existing_vc = discord.utils.get(self.bot.voice_clients, guild=channel.guild)
+        if existing_vc:
+            try:
+                await existing_vc.disconnect(force=True)
+                await asyncio.sleep(1)  # Give it time to fully disconnect
+            except Exception as e:
+                logger.warning(f"Error disconnecting existing voice client: {e}")
 
         for attempt in range(retries):
             try:
@@ -241,43 +256,57 @@ class Voice(commands.Cog):
                     logger.error(f"Missing permissions in channel {channel.id}: Connect={perms.connect}, Speak={perms.speak}")
                     return None
                     
-                # Force new voice connection
+                # Force new voice connection with shorter timeout
                 voice_client = await channel.connect(
-                    timeout=30.0,  # Increased timeout
-                    reconnect=True,
+                    timeout=20.0,  # Reduced timeout for faster failures
+                    reconnect=False,  # Don't auto-reconnect on failure
                     self_deaf=True
                 )
+                
+                # Verify connection is actually established
+                await asyncio.sleep(2)  # Give more time for connection to stabilize
+                
+                if not voice_client or not voice_client.is_connected():
+                    logger.warning(f"Voice client connection check failed on attempt {attempt + 1}")
+                    if voice_client:
+                        try:
+                            await voice_client.disconnect(force=True)
+                        except:
+                            pass
+                    raise ConnectionError("Voice client failed to establish connection")
                 
                 # Check if connected to blacklisted server
                 if hasattr(voice_client, 'endpoint') and voice_client.endpoint:
                     if any(bl in voice_client.endpoint for bl in self.BLACKLISTED_ENDPOINTS):
                         logger.warning(f"Connected to blacklisted endpoint: {voice_client.endpoint}")
-                        await voice_client.disconnect()
+                        await voice_client.disconnect(force=True)
                         raise ConnectionError("Blacklisted voice server")
+                    else:
+                        logger.info(f"Connected to endpoint: {voice_client.endpoint}")
                 
-                await asyncio.sleep(1)  # Stabilization delay
-                
-                if not voice_client.is_connected():
-                    raise ConnectionError("Voice client failed to establish connection")
-                    
                 self.active_connections.add(channel.guild.id)
                 logger.info(f"Successfully connected to voice channel {channel.id}")
                 return voice_client
                 
             except discord.ClientException as e:
                 if "Already connected" in str(e):
-                    return None
+                    logger.info("Already connected to voice channel")
+                    return discord.utils.get(self.bot.voice_clients, guild=channel.guild)
                 logger.error(f"ClientException during connection: {e}")
-                raise
+                
             except asyncio.TimeoutError:
-                logger.warning(f"Timeout connecting to channel {channel.id}")
+                logger.warning(f"Timeout connecting to channel {channel.id} on attempt {attempt + 1}")
+                
             except Exception as e:
                 logger.error(f"Connection attempt {attempt + 1}/{retries} failed: {type(e).__name__}: {e}")
-                if attempt < retries - 1:
-                    await asyncio.sleep(delay * (attempt + 1))
-                else:
-                    logger.error(f"Failed to connect after {retries} attempts")
-                    raise
+                
+            # Wait before retrying, with exponential backoff
+            if attempt < retries - 1:
+                wait_time = delay * (2 ** attempt)  # Exponential backoff
+                logger.info(f"Retrying connection in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+        
+        logger.error(f"Failed to connect to voice channel {channel.id} after {retries} attempts")
         return None
 
     @commands.Cog.listener()
@@ -296,11 +325,13 @@ class Voice(commands.Cog):
             return
 
         config = self.welcome_configs.get(guild_id, self.welcome_configs[None])
+        vc = None  # Initialize vc to None
         
         try:
             logger.info(f"Preparing welcome for {member.name} in guild {guild_id}")
             vc = await self.connect_to_channel(after.channel)
             if not vc:
+                logger.warning(f"Failed to connect to voice channel for {member.name}")
                 return
 
             welcome_text = self._get_welcome_message(member.name, config, name_only)
@@ -310,14 +341,21 @@ class Voice(commands.Cog):
             )
             
             await self.voice_manager.play_audio(vc, audio_file)
+            logger.info(f"Successfully welcomed {member.name} to voice channel")
             
         except Exception as e:
-            logger.error(f"Error in welcome sequence: {e}")
+            logger.error(f"Error in welcome sequence for {member.name}: {e}")
         finally:
+            # Clean up voice connection
             if vc and vc.is_connected():
-                await vc.disconnect()
-                self.active_connections.remove(guild_id)
-                logger.debug(f"Disconnected from guild {guild_id}")
+                try:
+                    await vc.disconnect()
+                    logger.debug(f"Disconnected from guild {guild_id}")
+                except Exception as e:
+                    logger.error(f"Error disconnecting from voice: {e}")
+                finally:
+                    # Always remove from active connections, even if disconnect fails
+                    self.active_connections.discard(guild_id)
 
     def _should_welcome_member(self, member: discord.Member, 
                              before: discord.VoiceState, 
@@ -394,15 +432,24 @@ class Voice(commands.Cog):
         # Disconnect from voice channels
         for vc in self.bot.voice_clients:
             if vc.is_connected():
-                await vc.disconnect()
+                try:
+                    await vc.disconnect(force=True)
+                except Exception as e:
+                    logger.error(f"Error disconnecting voice client during unload: {e}")
+        
+        # Clear active connections
+        self.active_connections.clear()
         
         # Cleanup temporary files
         if hasattr(self, 'voice_manager'):
             temp_dir = self.voice_manager.temp_dir
             if temp_dir.exists():
-                for file in temp_dir.glob("*.mp3"):
-                    file.unlink(missing_ok=True)
-                temp_dir.rmdir()
+                try:
+                    for file in temp_dir.glob("*.mp3"):
+                        file.unlink(missing_ok=True)
+                    temp_dir.rmdir()
+                except Exception as e:
+                    logger.error(f"Error cleaning up temp files: {e}")
         
         logger.info("Voice cog unloaded successfully")
 
