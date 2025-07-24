@@ -32,32 +32,32 @@ GUILD_ROLES = {
     1366855660632936468: "Vendetta"
 }
 
-# Alert Messages
+# Attack Alert Messages
 ALERT_MESSAGES = [
-    "Alert: {role} - Action needed!",
-    "Urgent: {role} - Please respond!",
-    "Attention: {role} - Guild activity required!",
-    "Notice: {role} - Your guild is being called!",
-    "Alert: {role} - Time to gather!"
+    "🚨 **ATTACK ALERT** 🚨 {role} - We're under attack! All hands on deck!",
+    "⚔️ **BATTLE STATIONS** ⚔️ {role} - Enemy forces detected! Defend now!",
+    "🛡️ **DEFEND THE REALM** 🛡️ {role} - Attack in progress! Rally your forces!",
+    "⚡ **URGENT DEFENSE** ⚡ {role} - Under siege! Immediate response required!",
+    "🔥 **WAR CALL** 🔥 {role} - Battle has begun! Join the fight!"
 ]
 
 class NoteModal(Modal):
-    """Modal for adding notes to alerts"""
+    """Modal for adding intel to alerts"""
     def __init__(self, message: discord.Message):
-        super().__init__(title="Add Note", timeout=300)
+        super().__init__(title="Add Battle Intel", timeout=300)
         self.message = message
 
         self.note_title = TextInput(
-            label="Note Title",
-            placeholder="Brief title for your note",
+            label="Intel Type",
+            placeholder="e.g., Enemy Count, Strategy, Location",
             style=discord.TextStyle.short,
             max_length=50,
             required=True
         )
 
         self.note_content = TextInput(
-            label="Note Details",
-            placeholder="Add details about the situation",
+            label="Intel Details",
+            placeholder="Provide detailed information about the attack/defense",
             style=discord.TextStyle.paragraph,
             max_length=300,
             required=True
@@ -78,21 +78,21 @@ class NoteModal(Modal):
                 f"{self.note_content.value}"
             )
 
-            existing_notes = embed.fields[0].value if embed.fields else "No notes yet."
+            existing_notes = embed.fields[0].value if embed.fields else "No intel yet."
             updated_notes = f"{existing_notes}\n\n{note}"
             
             embed.clear_fields()
-            embed.add_field(name="Notes", value=updated_notes, inline=False)
+            embed.add_field(name="Battle Intel", value=updated_notes, inline=False)
             
             await self.message.edit(embed=embed)
             await interaction.response.send_message(
-                "Note added successfully!", 
+                "Intel added successfully!", 
                 ephemeral=True
             )
         
         except Exception as e:
             await interaction.response.send_message(
-                f"Error adding note: {e}", 
+                f"Error adding intel: {e}", 
                 ephemeral=True
             )
 
@@ -106,36 +106,36 @@ class AlertView(View):
 
         # Add Note button
         add_note_btn = Button(
-            label="Add Note", 
+            label="Add Intel", 
             style=discord.ButtonStyle.blurple, 
             emoji="📝"
         )
         add_note_btn.callback = self.open_note_modal
         self.add_item(add_note_btn)
 
-        # Resolved button
-        resolved_btn = Button(
-            label="Mark Resolved", 
+        # Won button
+        won_btn = Button(
+            label="Won", 
             style=discord.ButtonStyle.green, 
-            emoji="✅"
+            emoji="🏆"
         )
-        resolved_btn.callback = lambda i: self.resolve_alert(i, "Resolved", discord.Color.green())
-        self.add_item(resolved_btn)
+        won_btn.callback = lambda i: self.resolve_alert(i, "Won", discord.Color.green())
+        self.add_item(won_btn)
 
-        # Failed button
-        failed_btn = Button(
-            label="Mark Failed", 
+        # Lost button
+        lost_btn = Button(
+            label="Lost", 
             style=discord.ButtonStyle.red, 
-            emoji="❌"
+            emoji="💀"
         )
-        failed_btn.callback = lambda i: self.resolve_alert(i, "Failed", discord.Color.red())
-        self.add_item(failed_btn)
+        lost_btn.callback = lambda i: self.resolve_alert(i, "Lost", discord.Color.red())
+        self.add_item(lost_btn)
 
     async def open_note_modal(self, interaction: discord.Interaction):
-        """Open note modal"""
+        """Open intel modal"""
         if interaction.channel_id != GUILD_CONFIG['alert_channel_id']:
             await interaction.response.send_message(
-                "You can only add notes in the alert channel.", 
+                "You can only add intel in the alert channel.", 
                 ephemeral=True
             )
             return
