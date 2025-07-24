@@ -34,21 +34,21 @@ GUILD_ROLES = {
 
 # Attack Alert Messages
 ALERT_MESSAGES = [
-    "🚨 **ATTACK ALERT** 🚨 {role} - We're under attack! All hands on deck!",
-    "⚔️ **BATTLE STATIONS** ⚔️ {role} - Enemy forces detected! Defend now!",
-    "🛡️ **DEFEND THE REALM** 🛡️ {role} - Attack in progress! Rally your forces!",
-    "⚡ **URGENT DEFENSE** ⚡ {role} - Under siege! Immediate response required!",
-    "🔥 **WAR CALL** 🔥 {role} - Battle has begun! Join the fight!"
+    " **JAJAJAJA ARE ATTACKING **  {role} - Wak wak a 3ibad lah. Perco Mcha ",
+    " **BATTLE STATIONS**  {role} - Enemy forces detected! Defend now",
+    " **DEFEND THE REALM**  {role} - Attack in progress! Rally your forces a Wald l9a7ba",
+    " **URGENT DEFENSE**  {role} - Under Attack Immediate Deff required",
+    " **WAR CALL**  {role} - Battle has begun Join the fight"
 ]
 
 class NoteModal(Modal):
-    """Modal for adding intel to alerts"""
+    """Modal for adding notes to alerts"""
     def __init__(self, message: discord.Message):
-        super().__init__(title="Add Battle Intel", timeout=300)
+        super().__init__(title="Add Battle Note", timeout=300)
         self.message = message
 
         self.note_title = TextInput(
-            label="Intel Type",
+            label="Note Type",
             placeholder="e.g., Enemy Count, Strategy, Location",
             style=discord.TextStyle.short,
             max_length=50,
@@ -56,7 +56,7 @@ class NoteModal(Modal):
         )
 
         self.note_content = TextInput(
-            label="Intel Details",
+            label="Note Details",
             placeholder="Provide detailed information about the attack/defense",
             style=discord.TextStyle.paragraph,
             max_length=300,
@@ -106,7 +106,7 @@ class AlertView(View):
 
         # Add Note button
         add_note_btn = Button(
-            label="Add Intel", 
+            label="Add Note", 
             style=discord.ButtonStyle.blurple, 
             emoji="📝"
         )
@@ -132,10 +132,10 @@ class AlertView(View):
         self.add_item(lost_btn)
 
     async def open_note_modal(self, interaction: discord.Interaction):
-        """Open intel modal"""
+        """Open note modal"""
         if interaction.channel_id != GUILD_CONFIG['alert_channel_id']:
             await interaction.response.send_message(
-                "You can only add intel in the alert channel.", 
+                "You can only add notes in the alert channel.", 
                 ephemeral=True
             )
             return
@@ -178,32 +178,11 @@ class GuildPingView(View):
         super().__init__(timeout=None)
         self.bot = bot
         
-        # Define button colors for different guilds
-        guild_colors = [
-            discord.ButtonStyle.red,      # Tight
-            discord.ButtonStyle.green,    # Guardians  
-            discord.ButtonStyle.blurple,  # Perfect Guild
-            discord.ButtonStyle.secondary, # Sausage Finger
-            discord.ButtonStyle.red,      # SAQ
-            discord.ButtonStyle.green,    # The Trenches
-            discord.ButtonStyle.blurple,  # EV
-            discord.ButtonStyle.secondary, # Punishment
-            discord.ButtonStyle.red,      # Demigods
-            discord.ButtonStyle.green,    # Nemesis
-            discord.ButtonStyle.blurple,  # Uchiha
-            discord.ButtonStyle.secondary, # Imperium
-            discord.ButtonStyle.red,      # Thieves
-            discord.ButtonStyle.green,    # Sparta
-            discord.ButtonStyle.blurple,  # Italians
-            discord.ButtonStyle.secondary, # Krosmic Flux
-            discord.ButtonStyle.red       # Vendetta
-        ]
-        
-        # Create a button for each guild with colors
-        for i, (role_id, guild_name) in enumerate(GUILD_ROLES.items()):
+        # Create a button for each guild - all blue
+        for role_id, guild_name in GUILD_ROLES.items():
             button = Button(
                 label=guild_name,
-                style=guild_colors[i % len(guild_colors)],
+                style=discord.ButtonStyle.blurple,  # All buttons blue
                 custom_id=f"guild_ping_{role_id}"
             )
             button.callback = self.create_ping_callback(role_id, guild_name)
