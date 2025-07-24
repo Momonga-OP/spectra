@@ -147,7 +147,7 @@ class AlertView(View):
         """Resolve alert with status update"""
         if self.is_resolved:
             await interaction.response.send_message(
-                "This alert has already been resolved.", 
+                "This battle has already been resolved.", 
                 ephemeral=True
             )
             return
@@ -160,15 +160,15 @@ class AlertView(View):
         embed = self.message.embeds[0]
         embed.color = color
         embed.add_field(
-            name="Status", 
-            value=f"**Result:** {status}\n**Resolved by:** {interaction.user.mention}", 
+            name="Battle Result", 
+            value=f"**Outcome:** {status}\n**Reported by:** {interaction.user.mention}", 
             inline=False
         )
-        embed.set_footer(text=f"Resolved at {datetime.now().strftime('%H:%M:%S')}")
+        embed.set_footer(text=f"Battle ended at {datetime.now().strftime('%H:%M:%S')}")
 
         await self.message.edit(embed=embed)
         await interaction.response.send_message(
-            f"Alert marked as **{status}**.", 
+            f"Battle marked as **{status}**.", 
             ephemeral=True
         )
 
@@ -178,11 +178,32 @@ class GuildPingView(View):
         super().__init__(timeout=None)
         self.bot = bot
         
-        # Create a button for each guild
-        for role_id, guild_name in GUILD_ROLES.items():
+        # Define button colors for different guilds
+        guild_colors = [
+            discord.ButtonStyle.red,      # Tight
+            discord.ButtonStyle.green,    # Guardians  
+            discord.ButtonStyle.blurple,  # Perfect Guild
+            discord.ButtonStyle.secondary, # Sausage Finger
+            discord.ButtonStyle.red,      # SAQ
+            discord.ButtonStyle.green,    # The Trenches
+            discord.ButtonStyle.blurple,  # EV
+            discord.ButtonStyle.secondary, # Punishment
+            discord.ButtonStyle.red,      # Demigods
+            discord.ButtonStyle.green,    # Nemesis
+            discord.ButtonStyle.blurple,  # Uchiha
+            discord.ButtonStyle.secondary, # Imperium
+            discord.ButtonStyle.red,      # Thieves
+            discord.ButtonStyle.green,    # Sparta
+            discord.ButtonStyle.blurple,  # Italians
+            discord.ButtonStyle.secondary, # Krosmic Flux
+            discord.ButtonStyle.red       # Vendetta
+        ]
+        
+        # Create a button for each guild with colors
+        for i, (role_id, guild_name) in enumerate(GUILD_ROLES.items()):
             button = Button(
                 label=guild_name,
-                style=discord.ButtonStyle.secondary,
+                style=guild_colors[i % len(guild_colors)],
                 custom_id=f"guild_ping_{role_id}"
             )
             button.callback = self.create_ping_callback(role_id, guild_name)
@@ -212,9 +233,9 @@ class GuildPingView(View):
                 alert_message = random.choice(ALERT_MESSAGES).format(role=role.mention)
                 
                 embed = discord.Embed(
-                    title=f"Guild Alert: {guild_name}",
-                    description=f"**Called by:** {interaction.user.mention}\n**Guild:** {guild_name}",
-                    color=discord.Color.blue()
+                    title=f"⚔️ ATTACK ALERT: {guild_name} ⚔️",
+                    description=f"**Alert Called by:** {interaction.user.mention}\n**Guild Under Attack:** {guild_name}\n**Status:** 🔴 Active Battle",
+                    color=discord.Color.dark_red()
                 )
                 
                 embed.set_thumbnail(
@@ -224,13 +245,13 @@ class GuildPingView(View):
                 )
                 
                 embed.add_field(
-                    name="Notes", 
-                    value="No notes yet.", 
+                    name="Battle Intel", 
+                    value="No intel yet.", 
                     inline=False
                 )
                 
                 embed.set_footer(
-                    text=f"Life Alliance Alert System | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                    text=f"Life Alliance Defense System | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
                 )
 
                 sent_message = await alert_channel.send(
@@ -242,14 +263,14 @@ class GuildPingView(View):
                 await sent_message.edit(view=view)
 
                 await interaction.response.send_message(
-                    f"Alert sent for **{guild_name}**!", 
+                    f"🚨 **ATTACK ALERT SENT** for **{guild_name}**! 🚨", 
                     ephemeral=True
                 )
 
             except Exception as e:
                 print(f"Error: {e}")
                 await interaction.response.send_message(
-                    "Something went wrong while sending the alert.", 
+                    "⚠️ Something went wrong while sending the attack alert.", 
                     ephemeral=True
                 )
 
@@ -263,54 +284,71 @@ class GuildAlertCog(commands.Cog):
     async def deploy_panel(self):
         """Deploy the guild ping panel"""
         try:
+            print(f"Looking for guild with ID: {GUILD_CONFIG['id']}")
             guild = self.bot.get_guild(GUILD_CONFIG['id'])
-            channel = guild.get_channel(GUILD_CONFIG['ping_channel_id'])
-
-            if not guild or not channel:
-                print("Error: Could not find guild or channel")
+            if not guild:
+                print("❌ Error: Could not find guild")
                 return
-
+            
+            print(f"Found guild: {guild.name}")
+            print(f"Looking for channel with ID: {GUILD_CONFIG['ping_channel_id']}")
+            channel = guild.get_channel(GUILD_CONFIG['ping_channel_id'])
+            if not channel:
+                print("❌ Error: Could not find ping channel")
+                return
+            
+            print(f"Found channel: {channel.name}")
+            
             view = GuildPingView(self.bot)
             
             panel_embed = discord.Embed(
-                title="Life Alliance Guild Alert System",
+                title="⚔️ Life Alliance Attack Alert System ⚔️",
                 description=(
-                    "**Guild Communication Panel**\n\n"
-                    "Click on your guild button below to send an alert to your guild members.\n"
-                    "This will ping your guild in the alert channel and create a discussion thread."
+                    "**Manual Attack & Defense Alert System**\n\n"
+                    "🛡️ This system is used to alert your guild members when under attack\n"
+                    "⚔️ Click your guild button below to send an immediate attack alert\n"
+                    "🚨 Only use this system for actual attacks or defense situations\n"
+                    "📊 Track battle progress and share intel in real-time"
                 ),
-                color=discord.Color.dark_blue()
+                color=discord.Color.dark_gold()
             )
             
-            guild_list = "\n".join(f"• {name}" for name in GUILD_ROLES.values())
             panel_embed.add_field(
-                name="Available Guilds", 
-                value=guild_list,
+                name="⚡ Quick Instructions", 
+                value="• Select your guild button to send attack alert\n• Add battle intel for coordination\n• Mark battles as Won/Lost when finished",
                 inline=False
             )
             
             panel_embed.set_footer(
-                text="Life Alliance Alert System"
+                text="Life Alliance Defense Network • Stay Strong, Fight Together"
             )
 
             # Check if there's already a pinned message to edit
+            print("Checking for existing pinned messages...")
             async for message in channel.history(limit=50):
                 if message.pinned and message.author == self.bot.user:
+                    print("Found existing pinned message, updating...")
                     await message.edit(embed=panel_embed, view=view)
+                    print("✅ Panel updated successfully!")
                     return
 
             # Create new message if no pinned message found
+            print("No existing pinned message found, creating new one...")
             new_message = await channel.send(embed=panel_embed, view=view)
             await new_message.pin()
+            print("✅ New panel created and pinned successfully!")
 
         except Exception as e:
-            print(f"Error deploying panel: {e}")
+            print(f"❌ Error deploying panel: {e}")
+            import traceback
+            traceback.print_exc()
 
     @commands.Cog.listener()
     async def on_ready(self):
         """Initialize system on bot startup"""
+        print("Bot is ready, deploying panel...")
         await self.deploy_panel()
-        print("Life Alliance Guild Alert System is ready!")
+        print("⚔️ Life Alliance Attack Alert System is ready for battle! ⚔️")
 
 async def setup(bot: commands.Bot):
     """Setup guild alert cog"""
