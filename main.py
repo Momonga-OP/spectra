@@ -7,7 +7,6 @@ import asyncpg
 import sys
 import random
 
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -173,3 +172,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.exception("Bot encountered an error and stopped")
         remove_lock()  # Clean up on error
+
