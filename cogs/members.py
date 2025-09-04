@@ -32,9 +32,9 @@ GUILD_ROLES = {
     1357443037311275108: "Italians",
     1387964877770981439: "Sausage",
     1231573740018470962: "Krosmic Flux",
-    1366855660632936468: "Vendetta"
-    1412884625096704051: "Family"
-    1412884525347901581: "Vesperion"
+    1366855660632936468: "Vendetta",
+    1412884625096704051: "Family",
+    1412884525347901581: "Vesperion",
 }
 
 def get_clean_display_name(member):
