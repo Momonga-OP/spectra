@@ -102,8 +102,12 @@ class LotteryCog(commands.Cog):
             )
             embed.timestamp = datetime.utcnow()
             
+            # Send results as a new message instead of editing
             if self.lottery_message:
-                await self.lottery_message.edit(embed=embed)
+                try:
+                    await self.lottery_message.channel.send(embed=embed)
+                except Exception as e:
+                    logger.error(f"Failed to send lottery results: {e}")
         else:
             # Pick random winner
             winner_id = random.choice(list(self.participants))
@@ -143,9 +147,12 @@ class LotteryCog(commands.Cog):
             embed.set_footer(text="Thank you to everyone who participated!")
             embed.timestamp = datetime.utcnow()
             
-            # Update the original message
+            # Send results as a new message instead of editing
             if self.lottery_message:
-                await self.lottery_message.edit(embed=embed)
+                try:
+                    await self.lottery_message.channel.send(embed=embed)
+                except Exception as e:
+                    logger.error(f"Failed to send lottery results: {e}")
                 
             # Send winner their voucher via DM
             await self.send_winner_voucher(winner)
@@ -198,6 +205,7 @@ class LotteryCog(commands.Cog):
         self.active_lottery = None
         self.participants = set()
         self.lottery_message = None
+        self.lottery_channel = None
         self.draw_time = None
         
     @commands.Cog.listener()
