@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 HELPER_ROLE_ID = 1244077334668116050
-LOG_CHANNEL_ID = 1370180452995825765
+LOG_CHANNEL_ID = 1247706162317758597  # Updated log channel
 BANNER_URL = "https://github.com/Momonga-OP/spectra/blob/main/Life.png?raw=true"
 COOLDOWN_MINUTES = 10
 
@@ -21,7 +21,7 @@ DUNGEONS = {
         "emoji_id": 1414786134193733714
     },
     "missiz": {
-        "name": "Missiz Freezz",
+        "name": "Missiz Freezz", 
         "emoji": "<:Missiz:1414786130314002482>",
         "emoji_id": 1414786130314002482
     },
@@ -53,9 +53,14 @@ class DungeonButton(discord.ui.Button):
             id=dungeon_data["emoji_id"]
         )
         
+        # Shorter label for better alignment
+        label = dungeon_data["name"]
+        if label == "Count Harebourg":
+            label = "C. Harebourg"  # Shorten for better fit
+        
         super().__init__(
             style=discord.ButtonStyle.primary,
-            label=dungeon_data["name"],
+            label=label,
             emoji=emoji,
             custom_id=f"dung_button_{dungeon_key}"
         )
@@ -78,7 +83,7 @@ class DungeonButton(discord.ui.Button):
                 minutes = int(remaining // 60)
                 seconds = int(remaining % 60)
                 await interaction.response.send_message(
-                    f"⏰ You're on cooldown! Please wait {minutes}m {seconds}s before requesting help again.",
+                    f"⏰ **Cooldown Active**\nPlease wait **{minutes}m {seconds}s** before requesting help again.",
                     ephemeral=True
                 )
                 return
@@ -88,7 +93,7 @@ class DungeonButton(discord.ui.Button):
         
         try:
             # Create thread for the dungeon request
-            thread_name = f"{self.dungeon_data['name']} - {interaction.user.name}"
+            thread_name = f" {self.dungeon_data['name']} - {interaction.user.name}"
             thread = await interaction.channel.create_thread(
                 name=thread_name[:100],  # Discord thread name limit
                 type=discord.ChannelType.public_thread,
@@ -96,28 +101,70 @@ class DungeonButton(discord.ui.Button):
                 reason=f"Dungeon help request by {interaction.user}"
             )
             
-            # Create embed for the thread
+            # Create embed for the thread with improved formatting
             embed = discord.Embed(
-                title=f"Dungeon Help Request: {self.dungeon_data['name']}",
-                description=(
-                    f"**Requester:** {interaction.user.mention}\n"
-                    f"**Helpers:** <@&{HELPER_ROLE_ID}>\n\n"
-                    f"Please coordinate here for the dungeon run.\n"
-                    f"Once completed, use `/close` to archive this thread."
-                ),
+                title=f" Dungeon Help Request: {self.dungeon_data['name']}",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
-            embed.set_footer(text="Life Alliance Dungeon Service")
+            
+            # Add fields with better formatting
+            embed.add_field(
+                name=" Request Details",
+                value=(
+                    f"**Requester:** {interaction.user.mention}\n"
+                    f"**Dungeon:** {self.dungeon_data['emoji']} **{self.dungeon_data['name']}**\n"
+                    f"**Created:** <t:{int(datetime.utcnow().timestamp())}:R>"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name=" Helpers Needed",
+                value=f"<@&{HELPER_ROLE_ID}>",
+                inline=False
+            )
+            
+            embed.add_field(
+                name=" Instructions",
+                value=(
+                    "1. Coordinate the dungeon run details here\n"
+                    "2. **After completion, please post a screenshot of the dungeon victory**\n"
+                    "3. Use `/close` to archive this thread when finished"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(
+                text="Life Alliance • Fast Run Service",
+                icon_url=interaction.guild.icon.url if interaction.guild.icon else None
+            )
             
             # Send embed in thread
             await thread.send(embed=embed)
             
-            # Send ephemeral confirmation to user
-            await interaction.response.send_message(
-                f"✅ Your request for **{self.dungeon_data['name']}** help has been opened in {thread.mention}",
-                ephemeral=True
+            # Send follow-up message requesting screenshot
+            followup_embed = discord.Embed(
+                description=(
+                    " **Screenshot Required**\n"
+                    "Please post a screenshot showing the dungeon completion once you're done!\n"
+                    "This helps us track successful runs and improve our service."
+                ),
+                color=discord.Color.gold()
             )
+            await thread.send(embed=followup_embed)
+            
+            # Send ephemeral confirmation to user
+            confirm_embed = discord.Embed(
+                title="✅ Request Created Successfully",
+                description=(
+                    f"Your request for **{self.dungeon_data['name']}** help has been created!\n\n"
+                    f" **Thread:** {thread.mention}\n"
+                    f" **Cooldown:** {COOLDOWN_MINUTES} minutes"
+                ),
+                color=discord.Color.green()
+            )
+            await interaction.response.send_message(embed=confirm_embed, ephemeral=True)
             
             # Log the request
             await self.log_request(interaction)
@@ -125,13 +172,13 @@ class DungeonButton(discord.ui.Button):
         except discord.HTTPException as e:
             logger.error(f"Failed to create thread: {e}")
             await interaction.response.send_message(
-                "❌ Failed to create help thread. Please try again or contact staff.",
+                "❌ **Error**\nFailed to create help thread. Please try again or contact staff.",
                 ephemeral=True
             )
         except Exception as e:
             logger.error(f"Unexpected error in dungeon button: {e}")
             await interaction.response.send_message(
-                "❌ An unexpected error occurred. Please contact staff.",
+                "❌ **Unexpected Error**\nPlease contact staff for assistance.",
                 ephemeral=True
             )
     
@@ -143,18 +190,39 @@ class DungeonButton(discord.ui.Button):
                 logger.warning(f"Log channel {LOG_CHANNEL_ID} not found")
                 return
             
+            # Create a cleaner log embed
             log_embed = discord.Embed(
-                title="🎮 New Dungeon Help Request",
-                description=(
-                    f"**User:** {interaction.user.mention} ({interaction.user.name})\n"
-                    f"**Dungeon:** {self.dungeon_data['name']}\n"
-                    f"**Channel:** {interaction.channel.mention}\n"
-                    f"**Time:** <t:{int(datetime.utcnow().timestamp())}:F>"
-                ),
+                title=" New Dungeon Help Request",
                 color=discord.Color.green(),
                 timestamp=datetime.utcnow()
             )
+            
+            log_embed.add_field(
+                name="User",
+                value=f"{interaction.user.mention} (`{interaction.user.name}`)",
+                inline=True
+            )
+            
+            log_embed.add_field(
+                name="Dungeon",
+                value=f"{self.dungeon_data['emoji']} {self.dungeon_data['name']}",
+                inline=True
+            )
+            
+            log_embed.add_field(
+                name="Channel",
+                value=interaction.channel.mention,
+                inline=True
+            )
+            
+            log_embed.add_field(
+                name="Time",
+                value=f"<t:{int(datetime.utcnow().timestamp())}:F>",
+                inline=False
+            )
+            
             log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            log_embed.set_footer(text=f"User ID: {interaction.user.id}")
             
             await log_channel.send(embed=log_embed)
             
@@ -168,7 +236,7 @@ class DungeonView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)  # Persistent view
         
-        # Add all dungeon buttons
+        # Add all dungeon buttons in a specific order for better layout
         for key, data in DUNGEONS.items():
             self.add_item(DungeonButton(key, data))
 
@@ -192,26 +260,51 @@ class DungeonCog(commands.Cog):
     async def dung_command(self, interaction: discord.Interaction):
         """Slash command to display the dungeon help panel"""
         
-        # Create the main embed
+        # Create the main embed with improved formatting
         embed = discord.Embed(
-            title="Frigost 3 Dungeon Help Panel",
-            description=(
-                "This service is free for Life Alliance.\n"
-                "Dungeon keys will be provided for the helpers from the Alliance.\n\n"
-                "This is a fast-run service (no achievements, no challenges).\n"
-                "Purpose: To give members access to Frigost 3 zones and help with their Quest (Ice Dofus...)."
-            ),
+            title="**Frigost 3 Dungeon Help Panel**",
             color=discord.Color.blue()
+        )
+        
+        # Add description with better formatting
+        embed.description = (
+            "**This service is free for Life Alliance.**\n"
+            "Dungeon keys will be provided for the helpers from the Alliance.\n"
+            "\n"
+            "** Service Information:**\n"
+            "• Fast-run service (no achievements, no challenges)\n"
+            "• Access to Frigost 3 zones\n"
+            "• Quest assistance (Ice Dofus and more)\n"
         )
         
         # Set the banner image
         embed.set_image(url=BANNER_URL)
         
-        # Add footer
+        # Add fields for clarity
+        embed.add_field(
+            name=" How to Request Help",
+            value="Click on a dungeon button below to create a help request",
+            inline=False
+        )
+        
+        embed.add_field(
+            name=" Cooldown",
+            value=f"{COOLDOWN_MINUTES} minutes per user",
+            inline=True
+        )
+        
+        embed.add_field(
+            name=" Requirements",
+            value="Screenshot required after completion",
+            inline=True
+        )
+        
+        # Add footer with timestamp
         embed.set_footer(
-            text="Click a button below to request help • 10 minute cooldown per user",
+            text="Life Alliance • Dungeon Service",
             icon_url=interaction.guild.icon.url if interaction.guild.icon else None
         )
+        embed.timestamp = datetime.utcnow()
         
         # Create the view with buttons
         view = DungeonView()
@@ -224,7 +317,7 @@ class DungeonCog(commands.Cog):
         except discord.HTTPException as e:
             logger.error(f"Failed to send dungeon panel: {e}")
             await interaction.response.send_message(
-                "❌ Failed to create the dungeon panel. Please try again.",
+                "❌ **Error**\nFailed to create the dungeon panel. Please try again.",
                 ephemeral=True
             )
     
@@ -235,7 +328,7 @@ class DungeonCog(commands.Cog):
         # Check if command is used in a thread
         if not isinstance(interaction.channel, discord.Thread):
             await interaction.response.send_message(
-                "❌ This command can only be used in a dungeon help thread.",
+                "❌ **Invalid Channel**\nThis command can only be used in a dungeon help thread.",
                 ephemeral=True
             )
             return
@@ -248,16 +341,22 @@ class DungeonCog(commands.Cog):
         
         if not (is_creator or has_helper_role or is_moderator):
             await interaction.response.send_message(
-                "❌ Only the requester, helpers, or moderators can close this thread.",
+                "❌ **Permission Denied**\nOnly the requester, helpers, or moderators can close this thread.",
                 ephemeral=True
             )
             return
         
         try:
-            # Send closing message
-            await interaction.response.send_message(
-                f"🔒 Thread closed by {interaction.user.mention}. Archiving..."
+            # Send closing message with better formatting
+            close_embed = discord.Embed(
+                description=f" **Thread Closed**\nClosed by {interaction.user.mention}\nArchiving in 3 seconds...",
+                color=discord.Color.red(),
+                timestamp=datetime.utcnow()
             )
+            await interaction.response.send_message(embed=close_embed)
+            
+            # Wait a moment before archiving
+            await asyncio.sleep(3)
             
             # Archive the thread
             await thread.edit(
@@ -271,7 +370,7 @@ class DungeonCog(commands.Cog):
         except discord.HTTPException as e:
             logger.error(f"Failed to close thread: {e}")
             await interaction.response.send_message(
-                "❌ Failed to close the thread. Please try again or contact staff.",
+                "❌ **Error**\nFailed to close the thread. Please try again or contact staff.",
                 ephemeral=True
             )
     
@@ -280,27 +379,42 @@ class DungeonCog(commands.Cog):
     async def dung_stats(self, interaction: discord.Interaction):
         """Staff command to view dungeon help statistics"""
         
-        # This is a placeholder for potential statistics tracking
-        # You could expand this to track requests in a database
-        
         embed = discord.Embed(
-            title="📊 Dungeon Help Statistics",
-            description="Statistics tracking coming soon!",
+            title="**Dungeon Help Statistics**",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
         
+        # List all available dungeons
+        dungeon_list = "\n".join([
+            f"{data['emoji']} **{data['name']}**" 
+            for data in DUNGEONS.values()
+        ])
         embed.add_field(
             name="Available Dungeons",
-            value="\n".join([f"{data['emoji']} {data['name']}" for data in DUNGEONS.values()]),
+            value=dungeon_list,
             inline=False
         )
         
-        embed.add_field(name="Helper Role", value=f"<@&{HELPER_ROLE_ID}>", inline=True)
-        embed.add_field(name="Cooldown", value=f"{COOLDOWN_MINUTES} minutes", inline=True)
+        # System information
+        embed.add_field(
+            name="System Configuration",
+            value=(
+                f"**Helper Role:** <@&{HELPER_ROLE_ID}>\n"
+                f"**Log Channel:** <#{LOG_CHANNEL_ID}>\n"
+                f"**Cooldown:** {COOLDOWN_MINUTES} minutes\n"
+                f"**Auto-Archive:** 24 hours"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="Life Alliance Dungeon Service")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
+# Import asyncio for the close command delay
+import asyncio
 
 async def setup(bot):
     """Setup function to add the cog to the bot"""
