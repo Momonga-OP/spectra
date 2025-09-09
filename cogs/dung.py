@@ -1,3 +1,11 @@
+# dung.py
+# Discord.py v2.x cog implementing a persistent Frigost 3 dungeon help panel
+# Changes in this version:
+# - Panel no longer mentions Cooldown/Requirements
+# - Removed /dung_info command
+# - Only one bot message in each created thread (no follow-up reminder)
+# - Keeps all previous fixes (global cooldown, requester auth via marker, real role ping, channel guards)
+
 import re
 import asyncio
 import logging
@@ -42,17 +50,14 @@ DUNGEONS = {
     "harebourg": {
         "name": "Count Harebourg",
         "emoji_id": 1414786116166619136,
-        "label": "C. Harebourg",  # shorter label for neat alignment
+        "label": "C. Harebourg",
     },
 }
 
 # Requester marker persisted in thread message content (survives restarts)
 REQUESTER_MARKER_RE = re.compile(r"REQUESTER_ID:(\d+)")
-DUNGEON_MARKER_RE = re.compile(r"DUNGEON_KEY:([a-z_]+)")
-
 # Allowed mentions: allow role + user pings, never @everyone
 ALLOWED_MENTIONS = discord.AllowedMentions(everyone=False, users=True, roles=True)
-
 # Fixed custom_id prefix for persistent buttons
 CUSTOM_ID_PREFIX = "f3_dung_btn"
 
@@ -69,7 +74,6 @@ class DungeonButton(discord.ui.Button):
             name=dungeon_data["name"].replace(" ", ""),
             id=dungeon_data["emoji_id"],
         )
-
         label = dungeon_data.get("label", dungeon_data["name"])
         custom_id = f"{CUSTOM_ID_PREFIX}:{dungeon_key}"
 
@@ -88,7 +92,7 @@ class DungeonButton(discord.ui.Button):
         # Guard: Ensure guild + channel availability
         if interaction.guild is None:
             return await interaction.response.send_message(
-                "❌ This can only be used in a server.", ephemeral=True
+                "Error: this can only be used in a server.", ephemeral=True
             )
 
         base_channel: Optional[discord.TextChannel] = None
@@ -98,14 +102,13 @@ class DungeonButton(discord.ui.Button):
         if isinstance(ch, discord.TextChannel):
             base_channel = ch
         elif isinstance(ch, discord.Thread) and isinstance(ch.parent, discord.TextChannel):
-            # Panel was posted in a text channel, but user clicked from inside a thread → disallow
             return await interaction.response.send_message(
-                "❌ Please use the panel in a text channel to create a request.",
+                "Please use the panel in a text channel to create a request.",
                 ephemeral=True,
             )
         else:
             return await interaction.response.send_message(
-                "❌ This isn’t a supported channel for creating threads.",
+                "This isn’t a supported channel for creating threads.",
                 ephemeral=True,
             )
 
@@ -115,7 +118,7 @@ class DungeonButton(discord.ui.Button):
             mins = int(remaining // 60)
             secs = int(remaining % 60)
             return await interaction.response.send_message(
-                f"⏰ Cooldown active. Please wait **{mins}m {secs}s** before requesting help again.",
+                f"Cooldown active. Please wait {mins}m {secs}s before requesting help again.",
                 ephemeral=True,
             )
 
@@ -138,7 +141,7 @@ class DungeonButton(discord.ui.Button):
             # Persist requester mapping in memory and in a thread message marker (survives restarts)
             self.cog.thread_requesters[thread.id] = interaction.user.id
 
-            # Compose a text message that includes actual pings + durable markers
+            # Compose a single text message that includes actual pings + durable markers
             role_mention = f"<@&{HELPER_ROLE_ID}>"
             requester_mention = interaction.user.mention
             marker_line = f"REQUESTER_ID:{interaction.user.id} | DUNGEON_KEY:{self.dungeon_key}"
@@ -157,9 +160,9 @@ class DungeonButton(discord.ui.Button):
             embed.add_field(
                 name="Request Details",
                 value=(
-                    f"**Requester:** {requester_mention}\n"
-                    f"**Dungeon:** {dungeon_name}\n"
-                    f"**Created:** <t:{int(utcnow().timestamp())}:R>"
+                    f"Requester: {requester_mention}\n"
+                    f"Dungeon: {dungeon_name}\n"
+                    f"Created: <t:{int(utcnow().timestamp())}:R>"
                 ),
                 inline=False,
             )
@@ -167,9 +170,9 @@ class DungeonButton(discord.ui.Button):
             embed.add_field(
                 name="Instructions",
                 value=(
-                    "1. Coordinate the run here.\n"
-                    "2. **After completion, please post a victory screenshot.**\n"
-                    "3. Use `/close` to archive this thread when finished."
+                    "Coordinate the run here.\n"
+                    "After completion, please post a victory screenshot.\n"
+                    "Use /close to archive this thread when finished."
                 ),
                 inline=False,
             )
@@ -178,16 +181,10 @@ class DungeonButton(discord.ui.Button):
             # Send the ping + embed (role ping works because it’s in normal content)
             await thread.send(content=intro_content, embed=embed, allowed_mentions=ALLOWED_MENTIONS)
 
-            # Optional follow-up/nudge
-            await thread.send(
-                content="📸 Reminder: post a screenshot after the clear so staff can track successful runs.",
-            )
-
             # Ephemeral confirmation to requester
             confirm = discord.Embed(
-                title="✅ Request Created",
-                description=f"Your request for **{dungeon_name}** is open here: {thread.mention}\n"
-                            f"Cooldown: **{COOLDOWN_MINUTES} minutes**.",
+                title="Request Created",
+                description=f"Your request for **{dungeon_name}** is open: {thread.mention}",
                 color=discord.Color.green(),
                 timestamp=utcnow(),
             )
@@ -205,19 +202,19 @@ class DungeonButton(discord.ui.Button):
         except discord.Forbidden:
             logger.exception("Missing permissions to create/send in thread.")
             return await interaction.response.send_message(
-                "❌ I don’t have permission to create or send messages in threads here.",
+                "Error: I don’t have permission to create or send messages in threads here.",
                 ephemeral=True,
             )
         except discord.HTTPException as e:
             logger.exception("HTTPException while creating thread: %s", e)
             return await interaction.response.send_message(
-                "❌ Failed to create a help thread. Please try again or contact staff.",
+                "Error: failed to create a help thread. Please try again or contact staff.",
                 ephemeral=True,
             )
         except Exception:
             logger.exception("Unexpected error in DungeonButton callback.")
             return await interaction.response.send_message(
-                "❌ Unexpected error. Please contact staff.",
+                "Unexpected error. Please contact staff.",
                 ephemeral=True,
             )
 
@@ -270,7 +267,6 @@ class DungeonCog(commands.Cog):
         if not until:
             return True, 0.0
         if now >= until:
-            # expired
             self._cooldowns.pop(user_id, None)
             return True, 0.0
         remaining = (until - now).total_seconds()
@@ -353,13 +349,12 @@ class DungeonCog(commands.Cog):
     async def dung_command(self, interaction: discord.Interaction):
         if interaction.guild is None:
             return await interaction.response.send_message(
-                "❌ This command can only be used in a server.", ephemeral=True
+                "Error: this command can only be used in a server.", ephemeral=True
             )
 
-        # Only allow panel in a normal text channel
         if not isinstance(interaction.channel, discord.TextChannel):
             return await interaction.response.send_message(
-                "❌ Please use this in a text channel.", ephemeral=True
+                "Please use this in a text channel.", ephemeral=True
             )
 
         embed = discord.Embed(
@@ -368,25 +363,15 @@ class DungeonCog(commands.Cog):
             timestamp=utcnow(),
         )
         embed.description = (
-            "**This service is free for Life Alliance.**\n"
+            "This service is free for Life Alliance.\n"
             "Dungeon keys will be provided for the helpers from the Alliance.\n\n"
-            "⚡ **Fast-run service** (no achievements, no challenges).\n"
-            "🎯 **Purpose:** Access to Frigost 3 zones + help with quest progression (Ice Dofus).\n"
+            "Fast-run service (no achievements, no challenges).\n"
+            "Purpose: Access to Frigost 3 zones + help with quest progression (Ice Dofus).\n"
         )
         embed.add_field(
             name="How to Request Help",
             value="Click a dungeon button below to create a help thread.",
             inline=False,
-        )
-        embed.add_field(
-            name="Cooldown",
-            value=f"{COOLDOWN_MINUTES} minutes per user.",
-            inline=True,
-        )
-        embed.add_field(
-            name="Requirements",
-            value="Post a victory screenshot before closing.",
-            inline=True,
         )
         embed.set_image(url=BANNER_URL)
         embed.set_footer(text="Life Alliance • Dungeon Service")
@@ -397,18 +382,18 @@ class DungeonCog(commands.Cog):
             await interaction.response.send_message(embed=embed, view=view)
         except discord.Forbidden:
             await interaction.response.send_message(
-                "❌ I can’t send the panel here (missing permissions).", ephemeral=True
+                "Error: I can’t send the panel here (missing permissions).", ephemeral=True
             )
         except discord.HTTPException:
             await interaction.response.send_message(
-                "❌ Failed to send the panel. Please try again.", ephemeral=True
+                "Error: failed to send the panel. Please try again.", ephemeral=True
             )
 
     @app_commands.command(name="close", description="Close and archive the current dungeon help thread.")
     async def close_command(self, interaction: discord.Interaction):
         if interaction.guild is None or not isinstance(interaction.channel, discord.Thread):
             return await interaction.response.send_message(
-                "❌ This command must be used inside a dungeon help thread.", ephemeral=True
+                "This command must be used inside a dungeon help thread.", ephemeral=True
             )
 
         thread: discord.Thread = interaction.channel
@@ -425,44 +410,27 @@ class DungeonCog(commands.Cog):
             has_helper_role = await self.member_has_helper_role(interaction.user)
 
         is_moderator = (
-            isinstance(interaction.user, discord.Member) and
-            interaction.user.guild_permissions.manage_threads
+            isinstance(interaction.user, discord.Member)
+            and interaction.user.guild_permissions.manage_threads
         )
 
         if not (is_requester or has_helper_role or is_moderator):
             return await interaction.response.send_message(
-                "❌ Only the requester, helpers, or moderators can close this thread.",
+                "Only the requester, helpers, or moderators can close this thread.",
                 ephemeral=True,
             )
 
-        # Close/lock the thread
         try:
             await interaction.response.send_message(
-                "🔒 Thread will be archived shortly…", ephemeral=True
+                "Thread will be archived shortly…", ephemeral=True
             )
             await asyncio.sleep(2)
             await thread.edit(archived=True, locked=True, reason=f"Closed by {interaction.user}")
         except discord.HTTPException:
             return await interaction.followup.send(
-                "❌ Failed to archive this thread. Please try again or contact staff.",
+                "Failed to archive this thread. Please try again or contact staff.",
                 ephemeral=True,
             )
-
-    # Optional: simple staff command to quickly show config (ephemeral)
-    @app_commands.command(name="dung_info", description="Show dungeon panel configuration (staff).")
-    @app_commands.default_permissions(manage_messages=True)
-    async def dung_info(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="Dungeon Service Configuration",
-            color=discord.Color.gold(),
-            timestamp=utcnow(),
-        )
-        embed.add_field(name="Helper Role", value=f"<@&{HELPER_ROLE_ID}>", inline=True)
-        embed.add_field(name="Log Channel", value=f"<#{LOG_CHANNEL_ID}>", inline=True)
-        embed.add_field(name="Cooldown", value=f"{COOLDOWN_MINUTES} minutes", inline=True)
-        dnames = "\n".join(f"- {d['name']}" for d in DUNGEONS.values())
-        embed.add_field(name="Dungeons", value=dnames, inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
