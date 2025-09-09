@@ -19,8 +19,8 @@ from discord import app_commands
 logger = logging.getLogger(__name__)
 
 # ===== Configuration =====
-HELPER_ROLE_ID = 1244077334668116050  # Role to ping for helpers
-LOG_CHANNEL_ID = 1247706162317758597  # Staff log channel (update if needed)
+HELPER_ROLE_ID = 1214188383606149170  # Role to ping for helpers
+LOG_CHANNEL_ID = 1376299601358885066  # Staff log channel (update if needed)
 BANNER_URL = "https://github.com/Momonga-OP/spectra/blob/main/Life.png?raw=true"
 COOLDOWN_MINUTES = 10  # Global per-user cooldown across all dungeons
 AUTO_ARCHIVE_MINUTES = 1440  # 24 hours
@@ -29,27 +29,27 @@ AUTO_ARCHIVE_MINUTES = 1440  # 24 hours
 DUNGEONS = {
     "nileza": {
         "name": "Nileza",
-        "emoji_id": 1414786134193733714,
+        "emoji_id": 1414937682240344204,
         "label": "Nileza",
     },
     "missiz": {
         "name": "Missiz Freezz",
-        "emoji_id": 1414786130314002482,
+        "emoji_id": 1414937676444078262,
         "label": "Missiz Freezz",
     },
     "sylargh": {
         "name": "Sylargh",
-        "emoji_id": 1414786126652117042,
+        "emoji_id": 1414937670538235955,
         "label": "Sylargh",
     },
     "klime": {
         "name": "Klime",
-        "emoji_id": 1414786120671166465,
+        "emoji_id": 1414937664758484993,
         "label": "Klime",
     },
     "harebourg": {
         "name": "Count Harebourg",
-        "emoji_id": 1414786116166619136,
+        "emoji_id": 1414937659566194749,
         "label": "C. Harebourg",
     },
 }
