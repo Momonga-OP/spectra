@@ -202,7 +202,7 @@ class URLCog(commands.Cog):
         
         embed.add_field(
             name="📤 Supported Services",
-            value="• **0x0.st** - Up to 512MB, 365 days\n• **transfer.sh** - Up to 10GB, 14 days\n• **tmpfiles.org** - Up to 100MB, configurable\n• **catbox.moe** - Up to 200MB, permanent",
+            value="• **file.io** - Up to 100MB, 14 days, secure\n• **0x0.st** - Up to 512MB, 365 days\n• **transfer.sh** - Up to 10GB, 14 days\n• **catbox.moe** - Up to 200MB, permanent",
             inline=False
         )
         
