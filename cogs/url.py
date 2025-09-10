@@ -201,8 +201,14 @@ class URLCog(commands.Cog):
         )
         
         embed.add_field(
-            name="📏 Limits",
-            value="• Maximum file size: 100MB\n• URLs are temporary (24 hours)\n• Some services allow single download only",
+            name="📤 Supported Services",
+            value="• **0x0.st** - Up to 512MB, 365 days\n• **transfer.sh** - Up to 10GB, 14 days\n• **tmpfiles.org** - Up to 100MB, configurable\n• **catbox.moe** - Up to 200MB, permanent",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📏 Limits & Duration",
+            value="• File size limit: 100MB (conservative)\n• Duration varies by service\n• Automatic service fallback if one fails",
             inline=False
         )
         
