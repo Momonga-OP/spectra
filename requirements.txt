@@ -9,18 +9,15 @@ pydub
 yt-dlp
 pandas
 openpyxl
-transformers
 aiohttp
 googletrans == 4.0.0-rc1
 aioredis
 pytube
-pytesseract
-opencv-python
 fuzzywuzzy
 python-Levenshtein
-onnxruntime
 asyncpg
 pyttsx3
 pyfiglet
 PyPDF2
 pytz
+
