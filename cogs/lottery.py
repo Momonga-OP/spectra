@@ -36,13 +36,13 @@ class LotteryCog(commands.Cog):
         # Set lottery details
         self.prize_amount = prize
         self.participants = set()
-        self.draw_time = datetime.utcnow() + timedelta(hours=1)
+        self.draw_time = datetime.utcnow() + timedelta(hours=4)  # Changed from 1 hour to 4 hours
         self.active_lottery = True
         
         # Create announcement embed
         embed = discord.Embed(
             title="Weekly Lottery Drawing",
-            description=f"Hello Life Alliance, are you feeling lucky today? Today is the weekly lottery day and all you need to do is react with the checkmark emoji below to participate. This is our first week, so the prize is going to be **{self.prize_amount}**.",
+            description=f"Hello Life Alliance, are you feeling lucky today? Today is the weekly lottery day and all you need to do is react with the checkmark emoji below to participate. This is our Second week, so the prize is going to be Either 1 mk or 10 Mk depends on the winner and which guild is from.",
             color=0x00ff00
         )
         
@@ -87,8 +87,8 @@ class LotteryCog(commands.Cog):
         asyncio.create_task(self.schedule_drawing())
         
     async def schedule_drawing(self):
-        """Schedule the lottery drawing after 1 hour"""
-        await asyncio.sleep(3600)  # Wait 1 hour (3600 seconds)
+        """Schedule the lottery drawing after 4 hours"""
+        await asyncio.sleep(14400)  # Wait 4 hours (14400 seconds) - Changed from 3600
         await self.conduct_drawing()
         
     async def conduct_drawing(self):
