@@ -17,36 +17,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Install FFmpeg (Optional)
-      - name: Install FFmpeg (Optional)
+      # Step 2: Install FFmpeg (Required for audio/video processing)
+      - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      # Step 3: Install PortAudio
-      - name: Install PortAudio
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y portaudio19-dev
-
-      # Step 4: Install Tesseract OCR with French language
-      - name: Install Tesseract OCR with French language
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra
-
-      # Step 5: Set up Tesseract environment variable
-      - name: Set up Tesseract environment variable
-        run: |
-          export TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/
-
-      # Step 6: Set up Python environment
+      # Step 3: Set up Python environment
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # Step 7: Cache pip dependencies (Optional)
+      # Step 4: Cache pip dependencies (Optional)
       - name: Cache pip dependencies (Optional)
         uses: actions/cache@v3
         with:
@@ -55,16 +38,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      # Step 8: Install dependencies
+      # Step 5: Install dependencies
       - name: Install dependencies
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Install eSpeak
-        run: sudo apt-get install -y espeak espeak-ng
-      # Step 9: Run the bot
+
+      # Step 6: Run the bot
       - name: Run the bot
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
@@ -73,7 +55,7 @@ jobs:
           source venv/bin/activate
           python main.py
       
-      # Step 10: Save data to repository
+      # Step 7: Save data to repository
       - name: Commit database file
         if: success()
         run: |
