@@ -129,7 +129,7 @@ async def on_error(event: str, *args, **kwargs):
 EXTENSIONS = [
     'cogs.general', 'cogs.moderation', 'cogs.poll', 'cogs.admin', 'cogs.gtoguild', 'cogs.save', 'cogs.key', 'cogs.link', 'cogs.log', 'cogs.welcomeafl',
     'cogs.relocate', 'cogs.watermark', 'cogs.serverstats', 'cogs.talk', 'cogs.write', 'cogs.alerts', 'cogs.makeup', 'cogs.pdf', 'cogs.teamspvp', 'cogs.lottery',
-    'cogs.watermark_user', 'cogs.attack', 'cogs.role', 'cogs.metiers', 'cogs.percopos', 'cogs.congrats', 'cogs.members', 'cogs.rulesafl', 'cogs.exportroles',
+    'cogs.watermark_user', 'cogs.attack', 'cogs.role', 'cogs.metiers', 'cogs.congrats', 'cogs.members', 'cogs.rulesafl', 'cogs.exportroles',
     'cogs.youtube_mp3', 'cogs.image_converter', 'cogs.clear', 'cogs.prism', 'cogs.sure', 'cogs.music', 'cogs.clone', 'cogs.tag', 'cogs.time', 'cogs.serverafl', 'cogs.dung',
     'cogs.bow', 'cogs.welcomesparta', 'cogs.contract', 'cogs.profession', 'cogs.afl', 'cogs.voicechannel', 'cogs.pin', 'cogs.memberstats', 'cogs.announcement',
     'cogs.super', 'cogs.translator', 'cogs.spotify', 'cogs.voice', 'cogs.youtubemp4', 'cogs.ecologia', 'cogs.invite', 'cogs.translation_voice', 'cogs.url',
@@ -172,6 +172,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.exception("Bot encountered an error and stopped")
         remove_lock()  # Clean up on error
+
 
 
 
