@@ -9,17 +9,17 @@ logger = logging.getLogger(__name__)
 class WriteCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Define allowed file types for security
-        self.allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
-        self.max_file_size = 8 * 1024 * 1024  # 8MB limit
+        # Define allowed file types for security (images and videos)
+        self.allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.avi', '.mkv', '.webm'}
+        self.max_file_size = 25 * 1024 * 1024  # 25MB limit (Discord's file size limit)
 
     @app_commands.command(
         name="write", 
-        description="Send."
+        description="Send a message with optional media (images or videos)."
     )
     @app_commands.describe(
         message="The message to send (max 2000 characters)",
-        image="Optional image to include with the message",
+        media="Optional image or video to include with the message",
         channel="Channel to send the message to (defaults to current channel)"
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -27,7 +27,7 @@ class WriteCog(commands.Cog):
         self, 
         interaction: discord.Interaction, 
         message: str, 
-        image: discord.Attachment = None,
+        media: discord.Attachment = None,
         channel: discord.TextChannel = None
     ):
         # Validate message length
@@ -51,34 +51,34 @@ class WriteCog(commands.Cog):
 
         files = []
         
-        # Validate and process image if provided
-        if image:
+        # Validate and process media if provided
+        if media:
             # Check file size
-            if image.size > self.max_file_size:
+            if media.size > self.max_file_size:
                 await interaction.response.send_message(
-                    f"Image file is too large! Maximum size is {self.max_file_size // (1024*1024)}MB.", 
+                    f"Media file is too large! Maximum size is {self.max_file_size // (1024*1024)}MB.", 
                     ephemeral=True
                 )
                 return
             
             # Check file extension
-            file_ext = '.' + image.filename.split('.')[-1].lower() if '.' in image.filename else ''
+            file_ext = '.' + media.filename.split('.')[-1].lower() if '.' in media.filename else ''
             if file_ext not in self.allowed_extensions:
                 await interaction.response.send_message(
-                    f"Invalid file type! Allowed types: {', '.join(self.allowed_extensions)}", 
+                    f"Invalid file type! Allowed types: {', '.join(sorted(self.allowed_extensions))}", 
                     ephemeral=True
                 )
                 return
             
             try:
-                # Read and prepare the image file
-                img_bytes = await image.read()
-                img_file = discord.File(fp=BytesIO(img_bytes), filename=image.filename)
-                files.append(img_file)
+                # Read and prepare the media file
+                media_bytes = await media.read()
+                media_file = discord.File(fp=BytesIO(media_bytes), filename=media.filename)
+                files.append(media_file)
             except Exception as e:
-                logger.error(f"Error processing image: {e}")
+                logger.error(f"Error processing media file: {e}")
                 await interaction.response.send_message(
-                    "Failed to process the image file.", 
+                    "Failed to process the media file.", 
                     ephemeral=True
                 )
                 return
@@ -88,13 +88,15 @@ class WriteCog(commands.Cog):
             await target_channel.send(content=message, files=files)
             
             # Confirm success to the user
-            success_msg = f"Anonymous message sent successfully to {target_channel.mention}!"
-            await interaction.response.send_message(success_msg, ephemeral=True)
+            media_type = "with media" if media else ""
+            success_msg = f"Anonymous message sent successfully to {target_channel.mention}! {media_type}"
+            await interaction.response.send_message(success_msg.strip(), ephemeral=True)
             
             # Log the action for audit purposes (without revealing content)
+            media_info = f" with {media.filename}" if media else ""
             logger.info(
                 f"Anonymous message sent by {interaction.user} ({interaction.user.id}) "
-                f"to #{target_channel.name} in {interaction.guild.name}"
+                f"to #{target_channel.name} in {interaction.guild.name}{media_info}"
             )
             
         except discord.Forbidden:
