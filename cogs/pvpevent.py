@@ -390,16 +390,39 @@ class PvPEvent(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message):
         """Listen for the trigger phrase"""
+        # Don't respond to bot messages
+        if message.author.bot:
+            return
+            
+        # Debug logging
+        logger.info(f"Message from {message.author.id} in channel {message.channel.id}: {message.content}")
+        
         if message.author.id != self.authorized_user_id:
+            logger.info(f"User {message.author.id} not authorized (expected {self.authorized_user_id})")
             return
         
         if message.channel.id != self.target_channel_id:
+            logger.info(f"Wrong channel {message.channel.id} (expected {self.target_channel_id})")
             return
         
         # Check if bot is mentioned and message contains "calculate the points"
-        if self.bot.user in message.mentions and "calculate the points" in message.content.lower():
+        bot_mentioned = self.bot.user in message.mentions
+        has_trigger = "calculate the points" in message.content.lower()
+        
+        logger.info(f"Bot mentioned: {bot_mentioned}, Has trigger: {has_trigger}")
+        logger.info(f"Message mentions: {[user.id for user in message.mentions]}")
+        logger.info(f"Bot user ID: {self.bot.user.id}")
+        
+        if bot_mentioned and has_trigger:
+            logger.info("Triggering points calculation...")
             ctx = await self.bot.get_context(message)
             await self.calculate_points_command(ctx)
+        else:
+            # Let's also try a simple command approach as backup
+            if message.content.lower().strip() == "!calculate_points":
+                logger.info("Using backup command trigger...")
+                ctx = await self.bot.get_context(message)
+                await self.calculate_points_command(ctx)
 
 async def setup(bot):
     await bot.add_cog(PvPEvent(bot))
