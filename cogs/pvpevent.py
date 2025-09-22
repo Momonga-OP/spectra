@@ -65,7 +65,7 @@ class PvPEvent(commands.Cog):
             gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
             
             # Apply gaussian blur to reduce noise
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
             
             # Apply threshold to get black and white image
             _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -75,11 +75,7 @@ class PvPEvent(commands.Cog):
             
             # Enhance contrast
             enhancer = ImageEnhance.Contrast(processed_image)
-            processed_image = enhancer.enhance(2.0)
-            
-            # Enhance sharpness
-            enhancer = ImageEnhance.Sharpness(processed_image)
-            processed_image = enhancer.enhance(2.0)
+            processed_image = enhancer.enhance(1.5)
             
             return processed_image
             
@@ -91,7 +87,7 @@ class PvPEvent(commands.Cog):
         """Extract text using OCR"""
         try:
             # Configure pytesseract for better results
-            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.'
+            custom_config = r'--oem 3 --psm 6'
             text = pytesseract.image_to_string(image, config=custom_config)
             return text
         except Exception as e:
@@ -101,31 +97,76 @@ class PvPEvent(commands.Cog):
     def detect_battle_result(self, text: str) -> dict:
         """Detect if it's a win or loss and extract relevant info"""
         text_lower = text.lower()
+        lines = text.split('\n')
         
-        # Look for victory/defeat indicators
-        victory_keywords = ['victory', 'victoire', 'winners', 'gagnants']
-        defeat_keywords = ['defeat', 'défaite', 'losers', 'perdants']
+        # Debug: Log the extracted text
+        logger.info(f"OCR Raw text: {text[:300]}...")
         
-        is_victory = any(keyword in text_lower for keyword in victory_keywords)
-        is_defeat = any(keyword in text_lower for keyword in defeat_keywords)
+        # Look for victory/defeat indicators with more patterns
+        victory_patterns = [
+            'victory', 'victoire', 'won', 'gagné', 'win',
+            '🏆', 'trophy', 'winners', 'gagnants'
+        ]
         
-        # Look for defenders (check for multiple players in losers section)
-        defender_indicators = ['defenders', 'défenseurs']
-        has_defenders = any(keyword in text_lower for keyword in defender_indicators)
+        defeat_patterns = [
+            'defeat', 'défaite', 'lost', 'perdu', 'lose',
+            'losers', 'perdants'
+        ]
         
-        # If we can't detect defenders from keywords, try to count names in losers section
-        if not has_defenders:
-            # Look for patterns that suggest multiple players
-            losers_section = self.extract_section_text(text, 'losers')
-            if losers_section:
-                # Count potential player names (assuming names don't contain numbers)
-                potential_names = re.findall(r'[A-Za-z][A-Za-z-_]{2,15}', losers_section)
-                has_defenders = len(potential_names) > 1
+        # Check each line for victory/defeat patterns
+        is_victory = False
+        is_defeat = False
+        
+        for line in lines:
+            line_clean = line.strip().lower()
+            if any(pattern in line_clean for pattern in victory_patterns):
+                is_victory = True
+                logger.info(f"Victory detected in line: {line}")
+            if any(pattern in line_clean for pattern in defeat_patterns):
+                is_defeat = True
+                logger.info(f"Defeat detected in line: {line}")
+        
+        # If we find "Winners" section, it's likely a victory screen
+        # If we only find "Losers" section, it might be a defeat screen
+        has_winners_section = any('winner' in line.lower() for line in lines)
+        has_losers_section = any('loser' in line.lower() for line in lines)
+        
+        # Enhanced logic: If we see winners section, assume victory
+        if has_winners_section and not is_defeat:
+            is_victory = True
+            
+        # Count defenders by looking for multiple player entries
+        defender_count = 0
+        player_entries = []
+        
+        for line in lines:
+            line_clean = line.strip()
+            # Look for player name patterns (names with levels, etc.)
+            if re.match(r'^[A-Za-z][A-Za-z0-9\-_\s]{2,20}\s+\d+', line_clean):
+                player_entries.append(line_clean)
+            # Also check for names followed by level indicators
+            elif re.search(r'[A-Za-z][A-Za-z0-9\-_]{2,15}.*\b(200|1\d\d|\d\d)\b', line_clean):
+                player_entries.append(line_clean)
+        
+        # Count unique defenders (anyone in losers section)
+        losers_section = self.extract_section_text(text, 'losers')
+        if losers_section:
+            potential_defenders = re.findall(r'[A-Za-z][A-Za-z0-9\-_]{2,15}', losers_section)
+            defender_count = len([name for name in potential_defenders 
+                                if not any(exclude in name.lower() for exclude in 
+                                         ['level', 'lvl', 'duration', 'kamas', 'drops', 'gained', 'xp'])])
+        
+        has_defenders = defender_count > 0
+        
+        logger.info(f"Victory: {is_victory}, Defeat: {is_defeat}, Defenders: {defender_count}, Has defenders: {has_defenders}")
         
         return {
             'is_victory': is_victory,
             'is_defeat': is_defeat,
             'has_defenders': has_defenders,
+            'defender_count': defender_count,
+            'has_winners_section': has_winners_section,
+            'has_losers_section': has_losers_section,
             'raw_text': text
         }
 
@@ -136,25 +177,28 @@ class PvPEvent(commands.Cog):
         section_text = []
         
         section_keywords = {
-            'winners': ['winners', 'gagnants', 'victory'],
-            'losers': ['losers', 'perdants', 'defeat']
+            'winners': ['winners', 'gagnants', 'winner'],
+            'losers': ['losers', 'perdants', 'loser']
         }
         
-        for line in lines:
+        for i, line in enumerate(lines):
             line_lower = line.lower().strip()
             
+            # Check if this line starts the section we want
             if any(keyword in line_lower for keyword in section_keywords.get(section, [])):
                 section_started = True
                 continue
             
             if section_started:
-                # Stop if we hit another section
+                # Stop if we hit another section or empty lines
                 if any(keyword in line_lower for other_section in section_keywords.values() 
                        for keyword in other_section if other_section != section_keywords.get(section)):
                     break
                 
                 if line.strip():
                     section_text.append(line.strip())
+                elif len(section_text) > 3:  # Stop after several empty lines
+                    break
         
         return '\n'.join(section_text)
 
@@ -163,61 +207,84 @@ class PvPEvent(commands.Cog):
         winners_text = self.extract_section_text(text, 'winners')
         losers_text = self.extract_section_text(text, 'losers')
         
-        # Pattern to match potential player names (adjust based on your server's naming conventions)
-        name_pattern = r'[A-Za-z][A-Za-z0-9\-_]{2,15}'
+        logger.info(f"Winners section: {winners_text[:100]}...")
+        logger.info(f"Losers section: {losers_text[:100]}...")
+        
+        # Pattern to match potential player names with level
+        # Looking for: Name followed by level (like "Aspireat 200")
+        name_level_pattern = r'([A-Za-z][A-Za-z0-9\-_\s]{2,20})\s+(\d+)'
         
         winners = []
         losers = []
         
         if winners_text:
-            potential_winners = re.findall(name_pattern, winners_text)
-            # Filter out common words/UI elements
-            filtered_winners = [name for name in potential_winners 
-                              if not any(exclude in name.lower() for exclude in 
-                                       ['level', 'lvl', 'duration', 'kamas', 'drops', 'gained', 'xp'])]
-            winners = filtered_winners[:4]  # Max 4 players per team usually
+            matches = re.findall(name_level_pattern, winners_text)
+            winners = [match[0].strip() for match in matches]
+            # Fallback: simple name pattern
+            if not winners:
+                simple_names = re.findall(r'[A-Za-z][A-Za-z0-9\-_]{2,15}', winners_text)
+                winners = [name for name in simple_names 
+                          if not any(exclude in name.lower() for exclude in 
+                                   ['level', 'lvl', 'duration', 'kamas', 'drops', 'gained', 'xp', 'winner'])][:4]
         
         if losers_text:
-            potential_losers = re.findall(name_pattern, losers_text)
-            filtered_losers = [name for name in potential_losers 
-                             if not any(exclude in name.lower() for exclude in 
-                                      ['level', 'lvl', 'duration', 'kamas', 'drops', 'gained', 'xp'])]
-            losers = filtered_losers[:4]  # Max 4 players per team usually
+            matches = re.findall(name_level_pattern, losers_text)
+            losers = [match[0].strip() for match in matches]
+            # Fallback: simple name pattern
+            if not losers:
+                simple_names = re.findall(r'[A-Za-z][A-Za-z0-9\-_]{2,15}', losers_text)
+                losers = [name for name in simple_names 
+                         if not any(exclude in name.lower() for exclude in 
+                                  ['level', 'lvl', 'duration', 'kamas', 'drops', 'gained', 'xp', 'loser'])][:4]
+        
+        logger.info(f"Extracted winners: {winners}")
+        logger.info(f"Extracted losers: {losers}")
         
         return {
             'winners': winners,
             'losers': losers
         }
 
-    def calculate_points(self, battle_result: dict, player_names: dict, attacking_player: str) -> dict:
+    def calculate_points(self, battle_result: dict, player_names: dict) -> dict:
         """Calculate points based on battle outcome"""
         points = 0
         reason = ""
         
-        # Check if the attacking player won or lost
-        player_won = attacking_player.lower() in [name.lower() for name in player_names.get('winners', [])]
-        has_defenders = battle_result.get('has_defenders', False) or len(player_names.get('losers', [])) > 0
+        # Determine if this was a victory or defeat
+        is_victory = battle_result.get('is_victory', False)
+        has_defenders = battle_result.get('has_defenders', False)
         
-        if player_won:
+        # Get the attacking players (winners if victory, losers if defeat)
+        if is_victory:
+            attacking_players = player_names.get('winners', [])
+            defending_players = player_names.get('losers', [])
+        else:
+            attacking_players = player_names.get('losers', [])  # Attackers lost
+            defending_players = player_names.get('winners', [])  # Defenders won
+        
+        # Calculate points based on outcome
+        if is_victory:
             if has_defenders:
                 points = 3
                 reason = "Won attack with defenders"
             else:
                 points = 2
-                reason = "Won attack with no defenders"
+                reason = "Won attack without defenders"
         else:
             if has_defenders:
                 points = 1
                 reason = "Lost attack with defenders"
             else:
                 points = 0
-                reason = "Lost attack with no defenders"
+                reason = "Lost attack without defenders"
         
         return {
             'points': points,
             'reason': reason,
-            'player_won': player_won,
-            'has_defenders': has_defenders
+            'is_victory': is_victory,
+            'has_defenders': has_defenders,
+            'attacking_players': attacking_players,
+            'defending_players': defending_players
         }
 
     async def process_screenshot(self, attachment) -> dict:
@@ -289,10 +356,11 @@ class PvPEvent(commands.Cog):
         processed_screenshots = 0
         errors = []
         duplicate_count = 0
+        battle_details = []
         
-        # Get recent messages (last 100 messages, adjust as needed)
+        # Get recent messages (last 200 messages, adjust as needed)
         messages = []
-        async for message in ctx.channel.history(limit=100):
+        async for message in ctx.channel.history(limit=200):
             if message.attachments:
                 messages.append(message)
         
@@ -314,29 +382,49 @@ class PvPEvent(commands.Cog):
                         
                         processed_screenshots += 1
                         
-                        # Try to determine the attacking player (could be the message author)
-                        attacking_player = message.author.display_name
-                        
                         # Calculate points for this battle
                         battle_points = self.calculate_points(
                             result['battle_result'], 
-                            result['player_names'], 
-                            attacking_player
+                            result['player_names']
                         )
                         
-                        player_points[attacking_player] += battle_points['points']
+                        # Add points to each attacking player
+                        attacking_players = battle_points.get('attacking_players', [])
+                        if attacking_players:
+                            for player in attacking_players:
+                                player_points[player] += battle_points['points']
+                        else:
+                            # Fallback: if no players detected, use Discord username
+                            fallback_name = message.author.display_name
+                            player_points[fallback_name] += battle_points['points']
+                            attacking_players = [fallback_name]
                         
-                        # Log the analysis for debugging
-                        logger.info(f"Processed screenshot from {attacking_player}: {battle_points['points']} points - {battle_points['reason']}")
+                        # Store battle details for debugging
+                        battle_details.append({
+                            'players': attacking_players,
+                            'points': battle_points['points'],
+                            'reason': battle_points['reason'],
+                            'is_victory': battle_points['is_victory'],
+                            'defenders': battle_points.get('defending_players', [])
+                        })
+                        
+                        # Log the analysis
+                        logger.info(f"Battle: {attacking_players} -> {battle_points['points']} points - {battle_points['reason']}")
                         
                     except Exception as e:
                         errors.append(f"Error processing screenshot from {message.author.display_name}: {str(e)}")
             
-            # Update progress every 10 messages
-            if i % 10 == 0:
-                await progress_msg.edit(content=f"Processed {i}/{len(messages)} messages...")
+            # Update progress every 20 messages
+            if i % 20 == 0:
+                try:
+                    await progress_msg.edit(content=f"Processed {i}/{len(messages)} messages...")
+                except:
+                    pass  # Ignore edit errors
         
-        await progress_msg.delete()
+        try:
+            await progress_msg.delete()
+        except:
+            pass  # Ignore deletion errors
         
         # Create results embed
         embed = discord.Embed(
@@ -366,7 +454,7 @@ class PvPEvent(commands.Cog):
         # Add point system reminder
         embed.add_field(
             name="🎯 Point System",
-            value="3 points: Won attack with defenders\n2 points: Won attack without defenders\n1 point: Lost attack with defenders",
+            value="3 points: Won attack with defenders\n2 points: Won attack without defenders\n1 point: Lost attack with defenders\n0 points: Lost attack without defenders",
             inline=False
         )
         
@@ -374,7 +462,7 @@ class PvPEvent(commands.Cog):
         
         # Send errors if any (in smaller chunks)
         if errors:
-            error_chunks = [errors[i:i+10] for i in range(0, len(errors), 10)]
+            error_chunks = [errors[i:i+5] for i in range(0, len(errors), 5)]
             for chunk in error_chunks:
                 error_text = "\n".join(chunk)
                 if len(error_text) > 1900:  # Discord limit is 2000 chars
@@ -410,8 +498,6 @@ class PvPEvent(commands.Cog):
         has_trigger = "calculate the points" in message.content.lower()
         
         logger.info(f"Bot mentioned: {bot_mentioned}, Has trigger: {has_trigger}")
-        logger.info(f"Message mentions: {[user.id for user in message.mentions]}")
-        logger.info(f"Bot user ID: {self.bot.user.id}")
         
         if bot_mentioned and has_trigger:
             logger.info("Triggering points calculation...")
