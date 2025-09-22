@@ -396,8 +396,8 @@ class PvPEvent(commands.Cog):
         if message.channel.id != self.target_channel_id:
             return
         
-        # Check for trigger phrase (case insensitive)
-        if "@spectra calculate the points" in message.content.lower():
+        # Check if bot is mentioned and message contains "calculate the points"
+        if self.bot.user in message.mentions and "calculate the points" in message.content.lower():
             ctx = await self.bot.get_context(message)
             await self.calculate_points_command(ctx)
 
