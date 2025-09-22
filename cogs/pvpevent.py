@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class PvPEvent(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.target_channel_id = 1417234772702527703
+        self.target_channel_id = 1237390434041462836
         self.authorized_user_id = 486652069831376943
         self.processed_hashes = set()  # To track duplicate screenshots
         
