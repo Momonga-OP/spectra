@@ -20,4 +20,8 @@ pyttsx3
 pyfiglet
 PyPDF2
 pytz
+pytesseract
+opencv-python-headless
+
+
 
