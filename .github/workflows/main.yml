@@ -2,7 +2,7 @@ name: Deploy Discord Bot
 on:
   push:
     branches:
-      - main  # Adjust to your target branch
+      - main  # Adjust to your target branchv
   schedule:
     - cron: '55 */5 * * *'  # Triggers every 5 hours and 55 minutes
   workflow_dispatch:
@@ -69,3 +69,4 @@ jobs:
             git commit -m "Save database changes"
             git push
           fi
+
